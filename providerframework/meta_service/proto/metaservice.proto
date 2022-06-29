@@ -17,7 +17,7 @@ package kahu.metaservice;
 
 option go_package = "lib/go;metaservice";
 
-// Resource specifies the name of a resource and whether it is namespaced.
+// Resource specifies the name of a resource and whether it is namespaced changes.
 message Resource {
   // name is the plural name of the resource.
   string name = 1;
