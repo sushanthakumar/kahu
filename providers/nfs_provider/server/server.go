@@ -30,7 +30,10 @@ import (
 )
 
 const (
-	READ_BUFFER_SIZE int = 4096
+	// NFSService component name
+	defaultProviderName        = "kahu-nfs-provider"
+	defaultProviderVersion     = "v1"
+	READ_BUFFER_SIZE       int = 4096
 )
 
 type nfsServer struct {
@@ -44,6 +47,42 @@ func NewMetaBackupServer(ctx context.Context,
 		ctx:     ctx,
 		options: serviceOptions,
 	}
+}
+
+func NewIdentityServer(ctx context.Context,
+	serviceOptions options.NFSProviderOptions) pb.IdentityServer {
+	return &nfsServer{
+		ctx:     ctx,
+		options: serviceOptions,
+	}
+}
+
+func (server *nfsServer) GetProviderInfo(ctx context.Context, GetProviderInfoRequest *pb.GetProviderInfoRequest) (*pb.GetProviderInfoResponse, error) {
+	log.Info("GetProviderInfo Called .... ")
+	response := &pb.GetProviderInfoResponse{
+		Provider: defaultProviderName,
+		Version:  defaultProviderVersion}
+
+	return response, nil
+}
+
+func (server *nfsServer) GetProviderCapabilities(ctx context.Context, GetProviderCapabilitiesRequest *pb.GetProviderCapabilitiesRequest) (*pb.GetProviderCapabilitiesResponse, error) {
+	log.Info("GetProviderCapabilities Called .... ")
+	return &pb.GetProviderCapabilitiesResponse{
+		Capabilities: []*pb.ProviderCapability{
+			{
+				Type: &pb.ProviderCapability_Service_{
+					Service: &pb.ProviderCapability_Service{
+						Type: pb.ProviderCapability_Service_META_BACKUP_SERVICE,
+					},
+				},
+			},
+		},
+	}, nil
+}
+
+func (server *nfsServer) Probe(ctx context.Context, probeRequest *pb.ProbeRequest) (*pb.ProbeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Probe not implemented")
 }
 
 func (server *nfsServer) Upload(service pb.MetaBackup_UploadServer) error {

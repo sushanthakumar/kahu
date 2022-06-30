@@ -17,11 +17,21 @@ limitations under the License.
 package utils
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 
+	log "github.com/sirupsen/logrus"
+
+	"google.golang.org/grpc"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+
+	metaservice "github.com/soda-cdm/kahu/providerframework/metaservice/lib/go"
 )
 
 func GetConfig(kubeConfig string) (config *restclient.Config, err error) {
@@ -37,4 +47,27 @@ func NamespaceAndName(objMeta metav1.Object) string {
 		return objMeta.GetName()
 	}
 	return fmt.Sprintf("%s/%s", objMeta.GetNamespace(), objMeta.GetName())
+}
+
+func GetK8sClient(config *restclient.Config) (*kubernetes.Clientset, error) {
+	return kubernetes.NewForConfig(config)
+}
+
+func GetgrpcConn(address string, port uint) (*grpc.ClientConn, error) {
+	return metaservice.NewLBDial(fmt.Sprintf("%s:%d", address, port), grpc.WithInsecure())
+}
+
+func GetMetaserviceClient(grpcConnection *grpc.ClientConn) metaservice.MetaServiceClient {
+	return metaservice.NewMetaServiceClient(grpcConnection)
+}
+
+func SetupSignalHandler(cancel context.CancelFunc) {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigs
+		log.Infof("Received signal %s, shutting down", sig)
+		cancel()
+	}()
 }
