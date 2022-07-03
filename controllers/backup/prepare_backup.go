@@ -24,6 +24,10 @@ import (
 	kahuv1beta1 "github.com/soda-cdm/kahu/apis/kahu/v1beta1"
 )
 
+var ResultantNamespace = []string{}
+
+var ResultantResource = []string{}
+
 type itemKey struct {
 	resource  string
 	namespace string
@@ -50,7 +54,8 @@ type GroupResouceVersion struct {
 }
 
 const (
-	pod = iota
+	deployments = iota
+	pod
 	pvc
 	pv
 	other
@@ -58,6 +63,8 @@ const (
 
 func CoreGroupResourcePriority(resource string) int {
 	switch strings.ToLower(resource) {
+	case "deployments":
+		return deployments
 	case "pods":
 		return pod
 	case "persistentvolumeclaims":

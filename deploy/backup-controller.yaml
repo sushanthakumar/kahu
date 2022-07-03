@@ -15,10 +15,10 @@ spec:
     spec:
       serviceAccountName: kahu
       containers:
-        - image: docker.io/library/controller-manager:v0.1.0
+        - image: docker.io/library/controllermanager:v0.1.0
           imagePullPolicy: IfNotPresent
           name: backup
-          command: ["/usr/local/bin/controller-manager"]
+          command: ["/usr/local/bin/controllermanager"]
           args:
           - --meta-address=kahu-nfs-provider.default.svc.cluster.local
 ---
@@ -49,6 +49,10 @@ rules:
     resources:
       - backups
       - backups/status
+      - restores
+      - restores/status
+      - backuplocations
+      - providers
     verbs:
       - get
       - watch

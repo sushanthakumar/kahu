@@ -16,7 +16,7 @@
 
 ARG BINARY
 
-FROM busybox 
+FROM gcr.io/distroless/base-debian11:nonroot
 
 LABEL maintainer="SODA Developer <soda-developer@soda.io>"
 

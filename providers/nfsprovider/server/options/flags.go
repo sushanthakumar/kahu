@@ -23,22 +23,33 @@ import (
 	"github.com/spf13/pflag"
 )
 
+const (
+	// NFSService component name
+	providerName   = "nfs-provider"
+	unixSocketPath = "/tmp/nfs.sock"
+	DataPath       = "/data"
+)
+
 type CompressionType string
 
 type NFSServiceFlags struct {
+	ProviderName   string
 	UnixSocketPath string
 	DataPath       string
 }
 
 func NewNFSServiceFlags() *NFSServiceFlags {
 	return &NFSServiceFlags{
-		UnixSocketPath: "/tmp/nfs.sock",
-		DataPath:       "/data",
+		ProviderName:   providerName,
+		UnixSocketPath: unixSocketPath,
+		DataPath:       DataPath,
 	}
 }
 
 // AddFlags exposes available command line options
 func (options *NFSServiceFlags) AddFlags(fs *pflag.FlagSet) {
+	fs.StringVarP(&options.ProviderName, "name", "n",
+		options.ProviderName, "NFS provider name")
 	fs.StringVarP(&options.UnixSocketPath, "socket", "s",
 		options.UnixSocketPath, "Unix socket path")
 	fs.StringVarP(&options.DataPath, "data", "d",

@@ -65,7 +65,7 @@ all:
 	@echo "$$ALL_HELP_INFO"
 else
 all: verify
-	build/build.sh $(WHAT)
+	@build/build.sh $(WHAT)
 endif
 
 define CLEAN_HELP_INFO
@@ -127,7 +127,7 @@ verify:
 	@echo "$$VERIFY_HELP_INFO"
 else
 verify:
-	build/verify.sh
+	@build/verify.sh
 endif
 
 .PHONY: verify-fmt
@@ -167,7 +167,7 @@ TMP_DIR=$$(mktemp -d) ;\
 cd $$TMP_DIR ;\
 go mod init tmp ;\
 echo "Downloading $(2)" ;\
-GOBIN=$(PROJECT_DIR)/${OUT_DIR}/bin go get $(2) ;\
+GOBIN=$(PROJECT_DIR)/${OUT_DIR}/bin go install $(2) ;\
 rm -rf $$TMP_DIR ;\
 }
 endef

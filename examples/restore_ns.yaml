@@ -1,0 +1,6 @@
+apiVersion: kahu.io/v1beta1
+kind: Restore 
+metadata:
+   name: restore-ns
+spec:
+   backupName: backup-demo-ns 

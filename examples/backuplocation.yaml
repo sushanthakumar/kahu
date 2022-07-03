@@ -3,5 +3,5 @@ kind: BackupLocation
 metadata:
    name: nfs
 spec:
-   providerName: nfs
+   providerName: nfs-provider
    config: {key: "key", password: "password"}

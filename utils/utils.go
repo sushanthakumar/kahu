@@ -27,6 +27,7 @@ import (
 
 	"google.golang.org/grpc"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -49,6 +50,20 @@ func NamespaceAndName(objMeta metav1.Object) string {
 	return fmt.Sprintf("%s/%s", objMeta.GetNamespace(), objMeta.GetName())
 }
 
+func SetupSignalHandler(cancel context.CancelFunc) {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigs
+		log.Infof("Received signal %s, shutting down", sig)
+		cancel()
+	}()
+}
+
+func GetDynamicClient(config *restclient.Config) (dynamic.Interface, error) {
+	return dynamic.NewForConfig(config)
+}
 func GetK8sClient(config *restclient.Config) (*kubernetes.Clientset, error) {
 	return kubernetes.NewForConfig(config)
 }
@@ -61,13 +76,19 @@ func GetMetaserviceClient(grpcConnection *grpc.ClientConn) metaservice.MetaServi
 	return metaservice.NewMetaServiceClient(grpcConnection)
 }
 
-func SetupSignalHandler(cancel context.CancelFunc) {
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+func GetMetaserviceBackupClient(address string, port uint) metaservice.MetaService_BackupClient {
 
-	go func() {
-		sig := <-sigs
-		log.Infof("Received signal %s, shutting down", sig)
-		cancel()
-	}()
+	grpcconn, err := metaservice.NewLBDial(fmt.Sprintf("%s:%d", address, port), grpc.WithInsecure())
+	if err != nil {
+		log.Errorf("error getting grpc connection %s", err)
+		return nil
+	}
+	metaClient := metaservice.NewMetaServiceClient(grpcconn)
+
+	backupClient, err := metaClient.Backup(context.Background())
+	if err != nil {
+		log.Errorf("error getting backupclient %s", err)
+		return nil
+	}
+	return backupClient
 }

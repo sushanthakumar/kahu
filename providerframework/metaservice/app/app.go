@@ -139,20 +139,22 @@ func Run(ctx context.Context, serviceOptions options.MetaServiceOptions) error {
 		return err
 	}
 
-	log.Info("Before Provider registration ")
 	// Register the metadata provider
 	err = providerIdentity.RegisterMetadataProvider(ctx, &grpcConn)
 	if err != nil {
 		log.Error("Failed to get provider info: ", err)
-		os.Exit(1)
+		return err
 	}
-
-	log.Info("Provider registration success....")
 
 	var opts []grpc.ServerOption
 	grpcServer := grpc.NewServer(opts...)
 	metaservice.RegisterMetaServiceServer(grpcServer, server.NewMetaServiceServer(ctx,
 		serviceOptions, repository))
+
+	go func(ctx context.Context, server *grpc.Server) {
+		<-ctx.Done()
+		server.Stop()
+	}(ctx, grpcServer)
 
 	return grpcServer.Serve(lis)
 }

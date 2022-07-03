@@ -17,6 +17,8 @@ limitations under the License.
 package server
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -127,8 +129,55 @@ func deleteUploadedFile(filePath string) {
 	}
 }
 
-func (server *metaServer) Restore(*pb.RestoreRequest,
-	pb.MetaService_RestoreServer) error {
-	log.Info("Restore Called")
+func (server *metaServer) Restore(req *pb.RestoreRequest,
+	service pb.MetaService_RestoreServer) error {
+	log.Infof("Restore Called with request %+v", req)
+
+	// download backup file
+	filePath, err := server.backupRepo.Download(req.GetId().GetBackupHandle(), req.GetId().GetParameters())
+	if err != nil {
+		log.Errorf("failed to upload backup. %s", err)
+		return status.Errorf(codes.Internal, "failed to upload backup. %s", err)
+	}
+	defer deleteUploadedFile(filePath)
+
+	archiveReader, err := server.archiveManager.
+		GetArchiveReader(archiver.CompressionType(server.options.CompressionFormat),
+			filePath)
+	if archiveReader == nil || err != nil {
+		log.Errorf("failed to create archive reader %s", err)
+		return status.Errorf(codes.Internal, "failed to create archive reader. %s", err)
+	}
+
+	var buffer bytes.Buffer
+	for {
+		header, reader, err := archiveReader.ReadNext()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return status.Errorf(codes.Internal, "failed to reader from archived file. %s", err)
+		}
+
+		writer := bufio.NewWriter(&buffer)
+		_, err = io.CopyN(writer, reader, header.Size)
+		if err != nil {
+			return status.Errorf(codes.Internal, "failed to form archived file. %s", err)
+		}
+
+		err = service.Send(&pb.GetResponse{
+			Restore: &pb.GetResponse_BackupResource{
+				BackupResource: &pb.BackupResource{
+					Resource: utils.FileToResource(header.Name),
+					Data:     buffer.Bytes(),
+				},
+			},
+		})
+		if err != nil {
+			return status.Errorf(codes.Internal, "failed to send back info from archived file. %s", err)
+		}
+		buffer.Reset()
+	}
+
 	return nil
 }

@@ -14,21 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package utils
 
-import (
-	"math/rand"
-	"os"
-	"time"
-
-	"github.com/soda-cdm/kahu/providers/nfs_provider/server"
+const (
+	BackupLocationServiceAnnotation = "kahu.io/provider-service"
 )
-
-func main() {
-	rand.Seed(time.Now().UnixNano())
-
-	command := server.NewNFSProviderCommand()
-	if err := command.Execute(); err != nil {
-		os.Exit(1)
-	}
-}

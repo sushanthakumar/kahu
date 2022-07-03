@@ -26,7 +26,7 @@ import (
 
 // RegisterMetadataProvider creates CRD entry on behalf of the metadata provider getting added.
 func RegisterMetadataProvider(ctx context.Context, conn *grpc.ClientConnInterface) error {
-	//return nil
+
 	return registerProvider(ctx, conn, apiv1beta1.ProviderTypeMetadata)
 
 }

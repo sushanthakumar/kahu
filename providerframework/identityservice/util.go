@@ -23,6 +23,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	apiv1beta1 "github.com/soda-cdm/kahu/apis/kahu/v1beta1"
@@ -71,7 +72,10 @@ func createProviderCR(providerInfo ProviderInfo, providerType apiv1beta1.Provide
 	// Create provider CRD as it is not found and update the status
 	_, err = client.KahuV1beta1().Providers().Get(context.TODO(), providerInfo.provider, metav1.GetOptions{})
 	if err != nil {
-		log.Info("createProviderCR Providers Get ", err)
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		log.Info("createProviderCR Providers not found")
 		provider := &apiv1beta1.Provider{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: providerInfo.provider,
@@ -98,6 +102,7 @@ func createProviderCR(providerInfo ProviderInfo, providerType apiv1beta1.Provide
 			return err
 		}
 	}
+	log.Info("createProviderCR Providers found")
 
 	return nil
 }

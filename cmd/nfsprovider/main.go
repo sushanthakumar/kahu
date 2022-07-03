@@ -19,7 +19,7 @@ import (
 	"os"
 	"time"
 
-	app "github.com/soda-cdm/kahu/providers/nfs_provider/server"
+	app "github.com/soda-cdm/kahu/providers/nfsprovider/server"
 )
 
 func main() {
