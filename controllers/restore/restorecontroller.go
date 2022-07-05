@@ -219,6 +219,7 @@ func (ctrl *controller) handler(key string) error {
 // Only restore object are passed on in Phases. The mechanism will help in failure/crash scenario
 func (ctx *restoreContext) runRestore(restore *kahuapi.Restore) error {
 	var err error
+	ctx.logger.Infof("Processing restore for %s", restore.Name)
 	// handle restore with stages
 	switch restore.Status.Phase {
 	case "", kahuapi.RestorePhaseInit:
@@ -245,6 +246,7 @@ func (ctx *restoreContext) runRestore(restore *kahuapi.Restore) error {
 			return err
 		}
 
+		ctx.logger.Info("Restore specification validation success")
 		// update status to metadata restore
 		restore.Status.Phase = kahuapi.RestorePhaseMeta
 		restore, err = ctx.updateRestoreStatus(restore)
@@ -289,9 +291,38 @@ func (ctx *restoreContext) validateRestore(restore *kahuapi.Restore) {
 }
 
 func (ctx *restoreContext) updateRestoreStatus(restore *kahuapi.Restore) (*kahuapi.Restore, error) {
-	updatedRestore, err := ctx.restoreClient.UpdateStatus(context.TODO(), restore, v1.UpdateOptions{})
+	// get restore status from lister
+	currentRestore, err := ctx.restoreLister.Get(restore.Name)
 	if err != nil {
-		ctx.logger.Errorf("Failed to update status %s", err)
+		return ctx.updatePhaseWithClient(restore)
+	}
+
+	currentRestore.Status = restore.Status
+	updatedRestore, err := ctx.restoreClient.UpdateStatus(context.TODO(),
+		currentRestore,
+		v1.UpdateOptions{})
+	if err != nil {
+		if apierrors.IsResourceExpired(err) {
+			return ctx.updatePhaseWithClient(restore)
+		}
+		return restore, err
+	}
+
+	return updatedRestore, err
+}
+
+func (ctx *restoreContext) updatePhaseWithClient(restore *kahuapi.Restore) (*kahuapi.Restore, error) {
+	currentRestore, err := ctx.restoreClient.Get(context.TODO(), restore.Name, v1.GetOptions{})
+	if err != nil {
+		return restore, err
+	}
+
+	currentRestore.Status = restore.Status
+	updatedRestore, err := ctx.restoreClient.UpdateStatus(context.TODO(),
+		currentRestore,
+		v1.UpdateOptions{})
+	if err != nil {
+		return restore, err
 	}
 
 	return updatedRestore, err

@@ -18,6 +18,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -35,11 +36,12 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/soda-cdm/kahu/apis/kahu/v1beta1"
-	kahuv1beta1 "github.com/soda-cdm/kahu/apis/kahu/v1beta1"
 	"github.com/soda-cdm/kahu/client/clientset/versioned"
+	"github.com/soda-cdm/kahu/client/clientset/versioned/scheme"
 	kahuv1client "github.com/soda-cdm/kahu/client/clientset/versioned/typed/kahu/v1beta1"
 	kahuinformer "github.com/soda-cdm/kahu/client/informers/externalversions/kahu/v1beta1"
 	kahulister "github.com/soda-cdm/kahu/client/listers/kahu/v1beta1"
@@ -133,7 +135,7 @@ func (c *controller) doBackup(key string) error {
 	backuplocation, err := c.backupLocationClient.Get(context.Background(), backupProvider, metav1.GetOptions{})
 	if err != nil {
 		c.logger.Errorf("failed to validate backup location, reason: %s", err)
-		backup.Status.Phase = kahuv1beta1.BackupPhaseFailedValidation
+		backup.Status.Phase = v1beta1.BackupPhaseFailedValidation
 		backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
 		c.updateStatus(backup, c.backupClient, backup.Status.Phase)
 		return err
@@ -144,12 +146,11 @@ func (c *controller) doBackup(key string) error {
 	prepareBackupReq := c.prepareBackupRequest(backup)
 
 	if len(prepareBackupReq.Status.ValidationErrors) > 0 {
-		prepareBackupReq.Status.Phase = kahuv1beta1.BackupPhaseFailedValidation
+		prepareBackupReq.Status.Phase = v1beta1.BackupPhaseFailedValidation
 		c.updateStatus(prepareBackupReq.Backup, c.backupClient, prepareBackupReq.Status.Phase)
 		return err
 	} else {
-		prepareBackupReq.Status.StartTimestamp = &metav1.Time{Time: time.Now()}
-		prepareBackupReq.Status.Phase = kahuv1beta1.BackupPhaseInProgress
+		prepareBackupReq.Status.Phase = v1beta1.BackupPhaseInProgress
 	}
 	prepareBackupReq.Status.StartTimestamp = &metav1.Time{Time: time.Now()}
 	c.updateStatus(prepareBackupReq.Backup, c.backupClient, prepareBackupReq.Status.Phase)
@@ -157,17 +158,18 @@ func (c *controller) doBackup(key string) error {
 	// start taking backup
 	err = c.runBackup(prepareBackupReq)
 	if err != nil {
-		prepareBackupReq.Status.Phase = kahuv1beta1.BackupPhaseFailed
+		prepareBackupReq.Status.Phase = v1beta1.BackupPhaseFailed
 	} else {
-		prepareBackupReq.Status.Phase = kahuv1beta1.BackupPhaseCompleted
+		prepareBackupReq.Status.Phase = v1beta1.BackupPhaseCompleted
 	}
 	prepareBackupReq.Status.LastBackup = &metav1.Time{Time: time.Now()}
 
 	c.logger.Infof("completed backup with status: %s", prepareBackupReq.Status.Phase)
+	c.updateStatus(prepareBackupReq.Backup, c.backupClient, prepareBackupReq.Status.Phase)
 	return err
 }
 
-func (c *controller) prepareBackupRequest(backup *kahuv1beta1.Backup) *PrepareBackup {
+func (c *controller) prepareBackupRequest(backup *v1beta1.Backup) *PrepareBackup {
 	backupRequest := &PrepareBackup{
 		Backup: backup.DeepCopy(),
 	}
@@ -204,14 +206,14 @@ func (c *controller) prepareBackupRequest(backup *kahuv1beta1.Backup) *PrepareBa
 	return backupRequest
 }
 
-func (c *controller) updateStatus(bkp *v1beta1.Backup, client kahuv1client.BackupInterface, phase kahuv1beta1.BackupPhase) {
+func (c *controller) updateStatus(bkp *v1beta1.Backup, client kahuv1client.BackupInterface, phase v1beta1.BackupPhase) {
 	backup, err := client.Get(context.Background(), bkp.Name, metav1.GetOptions{})
 	if err != nil {
 		c.logger.Errorf("failed to get backup for updating status :%+s", err)
 		return
 	}
 
-	if backup.Status.Phase == v1beta1.BackupPhaseCompleted && phase == kahuv1beta1.BackupPhaseFailed {
+	if backup.Status.Phase == v1beta1.BackupPhaseCompleted && phase == v1beta1.BackupPhaseFailed {
 		backup.Status.Phase = v1beta1.BackupPhasePartiallyFailed
 	} else if backup.Status.Phase == v1beta1.BackupPhasePartiallyFailed {
 		backup.Status.Phase = v1beta1.BackupPhasePartiallyFailed
@@ -289,47 +291,102 @@ func (c *controller) runBackup(backup *PrepareBackup) error {
 			case "deployments":
 				gvr, err := c.getGVR("deployments")
 				if err != nil {
-					backup.Status.Phase = kahuv1beta1.BackupPhaseFailed
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
 				}
 				err = c.deploymentBackup(gvr, ns, backup, backupClient)
 				if err != nil {
-					backup.Status.Phase = kahuv1beta1.BackupPhaseFailed
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
 				} else {
-					backup.Status.Phase = kahuv1beta1.BackupPhaseCompleted
+					backup.Status.Phase = v1beta1.BackupPhaseCompleted
 				}
 				c.updateStatus(backup.Backup, c.backupClient, backup.Status.Phase)
 			case "configmaps":
 				gvr, err := c.getGVR("configmaps")
 				if err != nil {
-					backup.Status.Phase = kahuv1beta1.BackupPhaseFailed
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
 				}
 				err = c.getConfigMapS(gvr, ns, backup, backupClient)
 				if err != nil {
-					backup.Status.Phase = kahuv1beta1.BackupPhaseFailed
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
 				} else {
-					backup.Status.Phase = kahuv1beta1.BackupPhaseCompleted
+					backup.Status.Phase = v1beta1.BackupPhaseCompleted
 				}
 			case "persistentvolumeclaims":
 				gvr, err := c.getGVR("persistentvolumeclaims")
 				if err != nil {
-					backup.Status.Phase = kahuv1beta1.BackupPhaseFailed
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
 				}
 				err = c.getPersistentVolumeClaims(gvr, ns, backup, backupClient)
 				if err != nil {
-					backup.Status.Phase = kahuv1beta1.BackupPhaseFailed
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
 				} else {
-					backup.Status.Phase = kahuv1beta1.BackupPhaseCompleted
+					backup.Status.Phase = v1beta1.BackupPhaseCompleted
 				}
 			case "storageclasses":
 				gvr, err := c.getGVR("storageclasses")
 				if err != nil {
-					backup.Status.Phase = kahuv1beta1.BackupPhaseFailed
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
 				}
 				err = c.getStorageClass(gvr, backup, backupClient)
 				if err != nil {
-					backup.Status.Phase = kahuv1beta1.BackupPhaseFailed
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
 				} else {
-					backup.Status.Phase = kahuv1beta1.BackupPhaseCompleted
+					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+				}
+			case "services":
+				gvr, err := c.getGVR("services")
+				if err != nil {
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
+				}
+				err = c.getServices(gvr, ns, backup, backupClient)
+				if err != nil {
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
+				} else {
+					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+				}
+			case "secrets":
+				gvr, err := c.getGVR("secrets")
+				if err != nil {
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
+				}
+				err = c.getSecrets(gvr, ns, backup, backupClient)
+				if err != nil {
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
+				} else {
+					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+				}
+			case "endpoints":
+				gvr, err := c.getGVR("endpoints")
+				if err != nil {
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
+				}
+				err = c.getEndpoints(gvr, ns, backup, backupClient)
+				if err != nil {
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
+				} else {
+					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+				}
+			case "replicasets":
+				gvr, err := c.getGVR("replicasets")
+				if err != nil {
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
+				}
+				err = c.getReplicasets(gvr, ns, backup, backupClient)
+				if err != nil {
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
+				} else {
+					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+				}
+			case "statefulsets":
+				gvr, err := c.getGVR("statefulsets")
+				if err != nil {
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
+				}
+				err = c.getStatefulsets(gvr, ns, backup, backupClient)
+				if err != nil {
+					backup.Status.Phase = v1beta1.BackupPhaseFailed
+				} else {
+					backup.Status.Phase = v1beta1.BackupPhaseCompleted
 				}
 			default:
 				continue
@@ -394,19 +451,31 @@ func sortCoreGroup(group *metav1.APIResourceList) {
 	})
 }
 
-func (c *controller) backupSend(gvr GroupResouceVersion,
-	resourceData []byte, metadataName string,
+func (c *controller) backupSend(obj runtime.Object, metadataName string,
 	backupSendClient metaservice.MetaService_BackupClient) error {
-	c.logger.Infof("sending metadata for namespace:%s and resources:%s", metadataName, gvr.resourceName)
 
-	err := backupSendClient.Send(&metaservice.BackupRequest{
+	gvk, err := addTypeInformationToObject(obj)
+	if err != nil {
+		c.logger.Errorf("Unable to get resource content: %s", err)
+		return err
+	}
+
+	resourceData, err := json.Marshal(obj)
+	if err != nil {
+		c.logger.Errorf("Unable to get resource content: %s", err)
+		return err
+	}
+
+	c.logger.Infof("sending metadata for object %s/%s", gvk, metadataName)
+
+	err = backupSendClient.Send(&metaservice.BackupRequest{
 		Backup: &metaservice.BackupRequest_BackupResource{
 			BackupResource: &metaservice.BackupResource{
 				Resource: &metaservice.Resource{
 					Name:    metadataName,
-					Group:   gvr.group,
-					Version: gvr.version,
-					Kind:    gvr.resourceName,
+					Group:   gvk.Group,
+					Version: gvk.Version,
+					Kind:    gvk.Kind,
 				},
 				Data: resourceData,
 			},
@@ -441,4 +510,27 @@ func (c *controller) handleDel(obj interface{}) {
 	backupName := utils.NamespaceAndName(backup)
 	c.deleteBackup(backupName, backup)
 
+}
+
+// addTypeInformationToObject adds TypeMeta information to a runtime.Object based upon the loaded scheme.Scheme
+// inspired by: https://github.com/kubernetes/cli-runtime/blob/v0.19.2/pkg/printers/typesetter.go#L41
+func addTypeInformationToObject(obj runtime.Object) (schema.GroupVersionKind, error) {
+	gvks, _, err := scheme.Scheme.ObjectKinds(obj)
+	if err != nil {
+		return schema.GroupVersionKind{}, fmt.Errorf("missing apiVersion or kind and cannot assign it; %w", err)
+	}
+
+	for _, gvk := range gvks {
+		if len(gvk.Kind) == 0 {
+			continue
+		}
+		if len(gvk.Version) == 0 || gvk.Version == runtime.APIVersionInternal {
+			continue
+		}
+
+		obj.GetObjectKind().SetGroupVersionKind(gvk)
+		return gvk, nil
+	}
+
+	return schema.GroupVersionKind{}, err
 }

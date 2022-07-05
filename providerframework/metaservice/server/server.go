@@ -111,8 +111,7 @@ func (server *metaServer) Backup(service pb.MetaService_BackupServer) error {
 		log.Errorf("failed to upload backup. %s", err)
 		return status.Errorf(codes.Internal, "failed to upload backup. %s", err)
 	}
-
-	defer deleteUploadedFile(archiveFile)
+	defer deleteFile(archiveFile)
 
 	err = service.SendAndClose(&pb.Empty{})
 	if err != nil {
@@ -122,7 +121,7 @@ func (server *metaServer) Backup(service pb.MetaService_BackupServer) error {
 	return nil
 }
 
-func deleteUploadedFile(filePath string) {
+func deleteFile(filePath string) {
 	err := os.Remove(filePath)
 	if err != nil {
 		log.Warningf("Failed to delete file. %s", err)
@@ -139,7 +138,7 @@ func (server *metaServer) Restore(req *pb.RestoreRequest,
 		log.Errorf("failed to upload backup. %s", err)
 		return status.Errorf(codes.Internal, "failed to upload backup. %s", err)
 	}
-	defer deleteUploadedFile(filePath)
+	defer deleteFile(filePath)
 
 	archiveReader, err := server.archiveManager.
 		GetArchiveReader(archiver.CompressionType(server.options.CompressionFormat),

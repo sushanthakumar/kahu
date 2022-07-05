@@ -25,7 +25,6 @@ import (
 
 const (
 	// NFSService component name
-	providerName   = "nfs-provider"
 	unixSocketPath = "/tmp/nfs.sock"
 	DataPath       = "/data"
 )
@@ -33,14 +32,12 @@ const (
 type CompressionType string
 
 type NFSServiceFlags struct {
-	ProviderName   string
 	UnixSocketPath string
 	DataPath       string
 }
 
 func NewNFSServiceFlags() *NFSServiceFlags {
 	return &NFSServiceFlags{
-		ProviderName:   providerName,
 		UnixSocketPath: unixSocketPath,
 		DataPath:       DataPath,
 	}
@@ -48,8 +45,6 @@ func NewNFSServiceFlags() *NFSServiceFlags {
 
 // AddFlags exposes available command line options
 func (options *NFSServiceFlags) AddFlags(fs *pflag.FlagSet) {
-	fs.StringVarP(&options.ProviderName, "name", "n",
-		options.ProviderName, "NFS provider name")
 	fs.StringVarP(&options.UnixSocketPath, "socket", "s",
 		options.UnixSocketPath, "Unix socket path")
 	fs.StringVarP(&options.DataPath, "data", "d",

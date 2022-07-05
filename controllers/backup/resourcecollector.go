@@ -17,108 +17,231 @@ limitations under the License.
 package backup
 
 import (
-	"encoding/json"
-	"io/ioutil"
+	"context"
 
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/kubernetes"
 
 	metaservice "github.com/soda-cdm/kahu/providerframework/metaservice/lib/go"
 )
 
-func (c *controller) getResourceObjectsWIthOptions(gvr GroupResouceVersion, ns string, backup *PrepareBackup) (*unstructured.UnstructuredList, error) {
-	var labelSelectors = map[string]string{}
+func (c *controller) getServices(gvr GroupResouceVersion, namespace string, backup *PrepareBackup,
+	backupClient metaservice.MetaService_BackupClient) error {
+
+	c.logger.Infoln("starting collecting services")
+	k8sClinet, err := kubernetes.NewForConfig(c.restClientconfig)
+	if err != nil {
+		c.logger.Errorf("Unable to get k8sclient %s", err)
+		return err
+	}
+
+	var labelSelectors map[string]string
 	if backup.Spec.Label != nil {
 		labelSelectors = backup.Spec.Label.MatchLabels
 	}
-	resourceObjectList, err := c.getResourceObjects(backup, gvr, ns, labelSelectors)
-	if err != nil {
-		c.logger.Errorf("unable to get object resource for deployments %s", err)
-		return nil, err
-	}
-	return resourceObjectList, nil
-}
 
-func (c *controller) unstructuredMarshalSend(gvr GroupResouceVersion,
-	namespace string, backupClient metaservice.MetaService_BackupClient,
-	resourceObjectsList *unstructured.UnstructuredList) error {
-	resourceObjects, err := meta.ExtractList(resourceObjectsList)
+	selectors := labels.Set(labelSelectors).String()
+	allServices, err := k8sClinet.CoreV1().Services(namespace).List(context.TODO(), metav1.ListOptions{
+		LabelSelector: selectors,
+	})
 	if err != nil {
 		return err
 	}
 
-	for _, o := range resourceObjects {
-		runtimeObject, ok := o.(runtime.Unstructured)
-		if !ok {
-			c.logger.Errorf("error casting object: %v", o)
-			return err
-		}
-
-		metadata, err := meta.Accessor(runtimeObject)
+	for _, service := range allServices.Items {
+		serviceData, err := k8sClinet.CoreV1().Services(namespace).Get(context.TODO(), service.Name, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
 
-		resourceData, err := json.Marshal(metadata)
+		err = c.backupSend(serviceData, serviceData.Name, backupClient)
 		if err != nil {
-			c.logger.Errorf("Unable to get resource content: %s", err)
 			return err
 		}
-		// file, _ := json.MarshalIndent(metadata, "", " ")
-		filename := gvr.resourceName + "_" + metadata.GetName() + ".json"
-		c.logger.Infoln("filename:", filename)
-		_ = ioutil.WriteFile(filename, resourceData, 0644)
-
-		c.backupSend(gvr, resourceData, namespace, backupClient)
 
 	}
 	return nil
 }
 
-func (c *controller) marshalAndSend(gvr GroupResouceVersion,
-	namespace string, backupClient metaservice.MetaService_BackupClient,
-	resourceObjectsList *unstructured.UnstructuredList) error {
-	resourceObjects, err := meta.ExtractList(resourceObjectsList)
+func (c *controller) getConfigMapS(gvr GroupResouceVersion, namespace string, backup *PrepareBackup,
+	backupClient metaservice.MetaService_BackupClient) error {
+
+	k8sClinet, err := kubernetes.NewForConfig(c.restClientconfig)
+	if err != nil {
+		c.logger.Errorf("Unable to get k8sclient %s", err)
+		return err
+	}
+
+	var labelSelectors map[string]string
+	if backup.Spec.Label != nil {
+		labelSelectors = backup.Spec.Label.MatchLabels
+	}
+
+	selectors := labels.Set(labelSelectors).String()
+	configList, err := k8sClinet.CoreV1().ConfigMaps(namespace).List(context.TODO(), metav1.ListOptions{
+		LabelSelector: selectors,
+	})
 	if err != nil {
 		return err
 	}
 
-	for _, o := range resourceObjects {
-		runtimeObject, ok := o.(runtime.Unstructured)
-		if !ok {
-			c.logger.Errorf("error casting object: %v", o)
-			return err
-		}
+	for _, configMap := range configList.Items {
+		config_data, err := c.GetConfigMap(namespace, configMap.Name)
 
-		metadata, err := meta.Accessor(runtimeObject)
+		err = c.backupSend(config_data, configMap.Name, backupClient)
 		if err != nil {
 			return err
 		}
-
-		resourceData, err := json.Marshal(metadata)
-		if err != nil {
-			c.logger.Errorf("Unable to get resource content: %s", err)
-			return err
-		}
-		// file, _ := json.MarshalIndent(metadata, "", " ")
-		filename := gvr.resourceName + "_" + metadata.GetName() + ".json"
-		c.logger.Infoln("filename:", filename)
-		_ = ioutil.WriteFile(filename, resourceData, 0644)
-
-		c.backupSend(gvr, resourceData, namespace, backupClient)
 
 	}
 	return nil
 }
 
-func (c *controller) resourcesBackup(gvr GroupResouceVersion, namespace string,
-	backup *PrepareBackup, backupClient metaservice.MetaService_BackupClient) error {
+func (c *controller) getSecrets(gvr GroupResouceVersion, namespace string, backup *PrepareBackup,
+	backupClient metaservice.MetaService_BackupClient) error {
 
-	resourceObjectList, err := c.getResourceObjectsWIthOptions(gvr, namespace, backup)
+	k8sClinet, err := kubernetes.NewForConfig(c.restClientconfig)
+	if err != nil {
+		c.logger.Errorf("Unable to get k8sclient %s", err)
+		return err
+	}
+
+	var labelSelectors map[string]string
+	if backup.Spec.Label != nil {
+		labelSelectors = backup.Spec.Label.MatchLabels
+	}
+
+	selectors := labels.Set(labelSelectors).String()
+	secretList, err := k8sClinet.CoreV1().Secrets(namespace).List(context.TODO(), metav1.ListOptions{
+		LabelSelector: selectors,
+	})
 	if err != nil {
 		return err
 	}
 
-	return c.unstructuredMarshalSend(gvr, namespace, backupClient, resourceObjectList)
+	for _, secret := range secretList.Items {
+		secretData, err := k8sClinet.CoreV1().Secrets(namespace).Get(context.TODO(), secret.Name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+
+		err = c.backupSend(secretData, secret.Name, backupClient)
+		if err != nil {
+			return err
+		}
+
+	}
+	return nil
+}
+
+func (c *controller) getEndpoints(gvr GroupResouceVersion, namespace string, backup *PrepareBackup,
+	backupClient metaservice.MetaService_BackupClient) error {
+
+	k8sClinet, err := kubernetes.NewForConfig(c.restClientconfig)
+	if err != nil {
+		c.logger.Errorf("Unable to get k8sclient %s", err)
+		return err
+	}
+
+	var labelSelectors map[string]string
+	if backup.Spec.Label != nil {
+		labelSelectors = backup.Spec.Label.MatchLabels
+	}
+
+	selectors := labels.Set(labelSelectors).String()
+	endpointList, err := k8sClinet.CoreV1().Endpoints(namespace).List(context.TODO(), metav1.ListOptions{
+		LabelSelector: selectors,
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, endpoint := range endpointList.Items {
+		endpointData, err := k8sClinet.CoreV1().Endpoints(namespace).Get(context.TODO(), endpoint.Name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+
+		err = c.backupSend(endpointData, endpointData.Name, backupClient)
+		if err != nil {
+			return err
+		}
+
+	}
+	return nil
+}
+
+func (c *controller) getReplicasets(gvr GroupResouceVersion, namespace string, backup *PrepareBackup,
+	backupClient metaservice.MetaService_BackupClient) error {
+
+	k8sClinet, err := kubernetes.NewForConfig(c.restClientconfig)
+	if err != nil {
+		c.logger.Errorf("Unable to get k8sclient %s", err)
+		return err
+	}
+
+	var labelSelectors map[string]string
+	if backup.Spec.Label != nil {
+		labelSelectors = backup.Spec.Label.MatchLabels
+	}
+
+	selectors := labels.Set(labelSelectors).String()
+	replicasetList, err := k8sClinet.AppsV1().ReplicaSets(namespace).List(context.TODO(), metav1.ListOptions{
+		LabelSelector: selectors,
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, replicaset := range replicasetList.Items {
+		replicasetData, err := k8sClinet.AppsV1().ReplicaSets(namespace).Get(context.TODO(), replicaset.Name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+
+		err = c.backupSend(replicasetData, replicaset.Name, backupClient)
+		if err != nil {
+			return err
+		}
+
+	}
+	return nil
+}
+
+func (c *controller) getStatefulsets(gvr GroupResouceVersion, namespace string, backup *PrepareBackup,
+	backupClient metaservice.MetaService_BackupClient) error {
+
+	k8sClinet, err := kubernetes.NewForConfig(c.restClientconfig)
+	if err != nil {
+		c.logger.Errorf("Unable to get k8sclient %s", err)
+		return err
+	}
+
+	var labelSelectors map[string]string
+	if backup.Spec.Label != nil {
+		labelSelectors = backup.Spec.Label.MatchLabels
+	}
+
+	selectors := labels.Set(labelSelectors).String()
+	statefulList, err := k8sClinet.AppsV1().StatefulSets(namespace).List(context.TODO(), metav1.ListOptions{
+		LabelSelector: selectors,
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, stateful := range statefulList.Items {
+		statefulData, err := k8sClinet.AppsV1().StatefulSets(namespace).Get(context.TODO(), stateful.Name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+
+		err = c.backupSend(statefulData, stateful.Name, backupClient)
+		if err != nil {
+			return err
+		}
+
+	}
+	return nil
 }

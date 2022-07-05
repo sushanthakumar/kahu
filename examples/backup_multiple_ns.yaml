@@ -1,0 +1,8 @@
+apiVersion: kahu.io/v1beta1
+kind: Backup
+metadata:
+   name: backup-multi-ns2
+spec:
+   includedResources: [configmaps, services]
+   includedNamespaces: ["sk", "default"]
+   metadataLocation: nfs

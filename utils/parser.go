@@ -49,7 +49,7 @@ func GetBackupIdentifier(backup *kahuapi.Backup,
 	backupLocation *kahuapi.BackupLocation,
 	backupProvider *kahuapi.Provider) (*pb.BackupIdentifier, error) {
 	if backup == nil || backupLocation == nil || backupProvider == nil {
-		return nil, fmt.Errorf("empty backup informeation for backup identifier")
+		return nil, fmt.Errorf("empty backup information for backup identifier")
 	}
 
 	mergedParameter := make(map[string]string, 0)

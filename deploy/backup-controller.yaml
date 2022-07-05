@@ -62,6 +62,7 @@ rules:
   - apiGroups: ["*"]
     resources: ["*"]
     verbs:
+      - create
       - get
       - list
 ---

@@ -61,7 +61,7 @@ func NewIdentityServer(ctx context.Context,
 func (server *nfsServer) GetProviderInfo(ctx context.Context, GetProviderInfoRequest *pb.GetProviderInfoRequest) (*pb.GetProviderInfoResponse, error) {
 	log.Info("GetProviderInfo Called .... ")
 	response := &pb.GetProviderInfoResponse{
-		Provider: server.options.ProviderName,
+		Provider: defaultProviderName,
 		Version:  defaultProviderVersion}
 
 	return response, nil

@@ -3,5 +3,5 @@ kind: BackupLocation
 metadata:
    name: nfs
 spec:
-   providerName: nfs-provider
+   providerName: kahu-nfs-provider
    config: {key: "key", password: "password"}

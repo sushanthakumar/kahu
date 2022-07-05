@@ -19,8 +19,6 @@ package identity
 import (
 	"context"
 
-	log "github.com/sirupsen/logrus"
-
 	"google.golang.org/grpc"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -42,14 +40,10 @@ func registerProvider(ctx context.Context, conn *grpc.ClientConnInterface, provi
 		return err
 	}
 
-	log.Info("Starting Server providerInfo", providerInfo)
-
 	providerCapabilities, err := GetProviderCapabilities(ctx, conn)
 	if err != nil {
 		return err
 	}
-
-	log.Info("Starting Server GetProviderCapabilities", providerCapabilities)
 
 	err = createProviderCR(providerInfo, providerType, providerCapabilities)
 	return err
@@ -59,23 +53,18 @@ func registerProvider(ctx context.Context, conn *grpc.ClientConnInterface, provi
 // createProviderCR creates CRD entry on behalf of the provider getting added.
 func createProviderCR(providerInfo ProviderInfo, providerType apiv1beta1.ProviderType, providerCapabilities map[string]bool) error {
 	cfg := kahuClient.NewFactoryConfig()
-	log.Info("createProviderCR cfg", cfg)
-
 	clientFactory := kahuClient.NewFactory(agentBaseName, cfg)
-	log.Info("createProviderCR clientFactory", clientFactory)
 	client, err := clientFactory.KahuClient()
 	if err != nil {
 		return err
 	}
 
-	log.Info("createProviderCR before Get, client", client)
 	// Create provider CRD as it is not found and update the status
 	_, err = client.KahuV1beta1().Providers().Get(context.TODO(), providerInfo.provider, metav1.GetOptions{})
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return err
 		}
-		log.Info("createProviderCR Providers not found")
 		provider := &apiv1beta1.Provider{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: providerInfo.provider,
@@ -89,7 +78,6 @@ func createProviderCR(providerInfo ProviderInfo, providerType apiv1beta1.Provide
 		}
 
 		provider, err = client.KahuV1beta1().Providers().Create(context.TODO(), provider, metav1.CreateOptions{})
-		log.Info("createProviderCR Providers Create ", err)
 		if err != nil {
 			return err
 		}
@@ -97,12 +85,10 @@ func createProviderCR(providerInfo ProviderInfo, providerType apiv1beta1.Provide
 		provider.Status.State = apiv1beta1.ProviderStateAvailable
 
 		provider, err = client.KahuV1beta1().Providers().UpdateStatus(context.TODO(), provider, metav1.UpdateOptions{})
-		log.Info("createProviderCR Providers UpdateStatus ", provider, err)
 		if err != nil {
 			return err
 		}
 	}
-	log.Info("createProviderCR Providers found")
 
 	return nil
 }

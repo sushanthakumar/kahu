@@ -1,0 +1,8 @@
+apiVersion: kahu.io/v1beta1
+kind: Restore 
+metadata:
+   name: restore-ns-replace
+spec:
+   backupName: backup-demo-include-ns
+   namespaceMapping:
+     sk: sk2
