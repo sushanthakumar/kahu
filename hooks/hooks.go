@@ -20,6 +20,7 @@ package hooks
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
 
@@ -68,6 +70,7 @@ type ResourceHook struct {
 type Hooks struct {
 	config        *rest.Config
 	resourceHooks []ResourceHook
+	enabled	  	  bool
 }
 
 // NewHooks creates hooks exection handler
@@ -77,18 +80,29 @@ func NewHooks(config *rest.Config, hookSpecs []kahuv1.ResourceHookSpec) (*Hooks,
 		log.Error("fail to parse hook specs")
 		return nil, err
 	}
+	isHooksEnabled := false
+	if len(resHooks) > 0 {
+		isHooksEnabled = true
+	}
 	h := &Hooks{
 		config:        config,
 		resourceHooks: resHooks,
+		enabled: 	   isHooksEnabled,
 	}
 
 	return h, err
+}
+
+// IsHooksEnabled is true if hooks are specified
+func (h *Hooks) IsHooksEnabled() bool {
+	return h.enabled
 }
 
 // UpdateHooksSpec is to re-configure hooks
 func (h *Hooks) UpdateHooksSpec(hookSpecs []kahuv1.ResourceHookSpec) error {
 	var err error
 	h.resourceHooks, err = getHooksSpec(hookSpecs)
+	h.enabled = len(h.resourceHooks) > 0
 	return err
 }
 
@@ -121,11 +135,21 @@ func getHooksSpec(hookSpecs []kahuv1.ResourceHookSpec) ([]ResourceHook, error) {
 
 // ExecuteHook executes the hooks in a container
 func (h *Hooks) ExecuteHook(
-	pod *v1.Pod,
+	namespace string,
+	name string,
 	stage string,
 ) error {
-	namespace := pod.GetNamespace()
-	name := pod.GetName()
+	k8sClient, err := kubernetes.NewForConfig(h.config)
+	if err != nil {
+		log.Errorf("Unable to get k8s client %s", err)
+		return err
+	}
+
+	pod, err := k8sClient.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		log.Errorf("Unable to get pod object for name %s", pod)
+		return err
+	}
 
 	// Handle hooks from annotations
 	hookExec := getHooksSpecFromAnnotations(pod.GetAnnotations(), stage)
