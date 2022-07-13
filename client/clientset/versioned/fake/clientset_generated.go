@@ -20,8 +20,8 @@ package fake
 
 import (
 	clientset "github.com/soda-cdm/kahu/client/clientset/versioned"
-	kahuv1beta1 "github.com/soda-cdm/kahu/client/clientset/versioned/typed/kahu/v1beta1"
-	fakekahuv1beta1 "github.com/soda-cdm/kahu/client/clientset/versioned/typed/kahu/v1beta1/fake"
+	kahuv1 "github.com/soda-cdm/kahu/client/clientset/versioned/typed/kahu/v1"
+	fakekahuv1 "github.com/soda-cdm/kahu/client/clientset/versioned/typed/kahu/v1/fake"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
@@ -79,7 +79,7 @@ var (
 	_ testing.FakeClient  = &Clientset{}
 )
 
-// KahuV1beta1 retrieves the KahuV1beta1Client
-func (c *Clientset) KahuV1beta1() kahuv1beta1.KahuV1beta1Interface {
-	return &fakekahuv1beta1.FakeKahuV1beta1{Fake: &c.Fake}
+// KahuV1 retrieves the KahuV1Client
+func (c *Clientset) KahuV1() kahuv1.KahuV1Interface {
+	return &fakekahuv1.FakeKahuV1{Fake: &c.Fake}
 }

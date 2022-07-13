@@ -24,7 +24,7 @@ import (
 
 	"k8s.io/client-go/tools/cache"
 
-	kahuapi "github.com/soda-cdm/kahu/apis/kahu/v1beta1"
+	kahuapi "github.com/soda-cdm/kahu/apis/kahu/v1"
 )
 
 type mutationHandler interface {

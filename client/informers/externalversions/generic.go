@@ -21,7 +21,7 @@ package externalversions
 import (
 	"fmt"
 
-	v1beta1 "github.com/soda-cdm/kahu/apis/kahu/v1beta1"
+	v1 "github.com/soda-cdm/kahu/apis/kahu/v1"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
 )
@@ -52,15 +52,15 @@ func (f *genericInformer) Lister() cache.GenericLister {
 // TODO extend this to unknown resources with a client pool
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
-	// Group=kahu.io, Version=v1beta1
-	case v1beta1.SchemeGroupVersion.WithResource("backups"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Kahu().V1beta1().Backups().Informer()}, nil
-	case v1beta1.SchemeGroupVersion.WithResource("backuplocations"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Kahu().V1beta1().BackupLocations().Informer()}, nil
-	case v1beta1.SchemeGroupVersion.WithResource("providers"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Kahu().V1beta1().Providers().Informer()}, nil
-	case v1beta1.SchemeGroupVersion.WithResource("restores"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Kahu().V1beta1().Restores().Informer()}, nil
+	// Group=kahu.io, Version=v1
+	case v1.SchemeGroupVersion.WithResource("backups"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kahu().V1().Backups().Informer()}, nil
+	case v1.SchemeGroupVersion.WithResource("backuplocations"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kahu().V1().BackupLocations().Informer()}, nil
+	case v1.SchemeGroupVersion.WithResource("providers"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kahu().V1().Providers().Informer()}, nil
+	case v1.SchemeGroupVersion.WithResource("restores"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kahu().V1().Restores().Informer()}, nil
 
 	}
 

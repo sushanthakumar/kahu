@@ -51,7 +51,7 @@ bash "${CODE_GEN_PATH}/code-generator/generate-groups.sh" \
   all \
   github.com/soda-cdm/kahu/client \
   github.com/soda-cdm/kahu/apis \
-  "kahu:v1beta1" \
+  "kahu:v1" \
   --go-header-file ${ROOT_DIR}/hack/boilerplate.go.txt \
   $@
 )

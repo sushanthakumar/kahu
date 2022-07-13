@@ -18,9 +18,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
-	"os"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -54,29 +54,8 @@ func NewMetaServiceCommand() *cobra.Command {
 		// Disabled flag parsing from cobra framework
 		DisableFlagParsing: true,
 		Run: func(cmd *cobra.Command, args []string) {
-			// initial flag parse, since we disable cobra's flag parsing
-			if err := cleanFlagSet.Parse(args); err != nil {
-				log.Error("Failed to parse meta service flag ", err)
-				_ = cmd.Usage()
-				os.Exit(1)
-			}
-
-			// check if there are non-flag arguments in the command line
-			cmds := cleanFlagSet.Args()
-			if len(cmds) > 0 {
-				log.Error("Unknown command ", cmds[0])
-				_ = cmd.Usage()
-				return
-			}
-
-			// short-circuit on help
-			help, err := cleanFlagSet.GetBool("help")
-			if err != nil {
-				log.Error(`"help" flag is non-bool`)
-				return
-			}
-			if help {
-				_ = cmd.Help()
+			// validate flags
+			if err := validateFlags(cmd, cleanFlagSet, args); err != nil {
 				return
 			}
 
@@ -122,6 +101,36 @@ func NewMetaServiceCommand() *cobra.Command {
 	})
 
 	return cmd
+}
+
+// validateFlags validates metadata service arguments
+func validateFlags(cmd *cobra.Command, cleanFlagSet *pflag.FlagSet, args []string) error {
+	// initial flag parse, since we disable cobra's flag parsing
+	if err := cleanFlagSet.Parse(args); err != nil {
+		log.Error("Failed to parse metadata service flag ", err)
+		_ = cmd.Usage()
+		return err
+	}
+
+	// check if there are non-flag arguments in the command line
+	cmds := cleanFlagSet.Args()
+	if len(cmds) > 0 {
+		log.Error("unknown command ", cmds[0])
+		_ = cmd.Usage()
+		return errors.New("unknown command")
+	}
+
+	// short-circuit on help
+	help, err := cleanFlagSet.GetBool("help")
+	if err != nil {
+		log.Error(`"help" flag is non-bool`)
+		return err
+	}
+	if help {
+		_ = cmd.Help()
+		return err
+	}
+	return nil
 }
 
 func Run(ctx context.Context, serviceOptions options.MetaServiceOptions) error {

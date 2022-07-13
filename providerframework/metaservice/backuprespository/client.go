@@ -35,6 +35,7 @@ import (
 type BackupRepository interface {
 	Upload(filePath string) error
 	Download(fileID string, attributes map[string]string) (string, error)
+	Delete(filePath string, attributes map[string]string) error
 }
 
 type backupRepository struct {
@@ -175,4 +176,31 @@ func (repo *backupRepository) Download(fileID string, attributes map[string]stri
 	writer.Flush()
 	repoClient.CloseSend()
 	return fileLocation, nil
+}
+
+func (repo *backupRepository) Delete(fileID string, attributes map[string]string) (error) {
+
+	objectExistsReq := &pb.ObjectExistsRequest{
+		FileIdentifier: fileID,
+		Attributes:     attributes,
+	}
+
+	IsBackupFileExist, err := repo.client.ObjectExists(context.Background(), objectExistsReq)
+	if err != nil || IsBackupFileExist == nil{
+		return err
+	}
+	if IsBackupFileExist.Exists == false {
+		log.Infof("Backup file %s not found, skipping the delete operation", fileID)
+		return nil
+	}
+
+	deleteReq := &pb.DeleteRequest{
+		FileIdentifier: fileID,
+		Attributes:     attributes,
+	}
+
+	repo.client.Delete(context.Background(), deleteReq)
+	// log.Infof("Backup file %s not found, skipping the delete operation", fileID)
+
+	return nil
 }

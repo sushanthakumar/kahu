@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	kahuapi "github.com/soda-cdm/kahu/apis/kahu/v1beta1"
+	kahuapi "github.com/soda-cdm/kahu/apis/kahu/v1"
 	pb "github.com/soda-cdm/kahu/providerframework/metaservice/lib/go"
 )
 

@@ -19,6 +19,7 @@ package restore
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -32,11 +33,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
-	kahuapi "github.com/soda-cdm/kahu/apis/kahu/v1beta1"
+	kahuapi "github.com/soda-cdm/kahu/apis/kahu/v1"
 	"github.com/soda-cdm/kahu/client/clientset/versioned"
-	kahuv1client "github.com/soda-cdm/kahu/client/clientset/versioned/typed/kahu/v1beta1"
+	kahuv1client "github.com/soda-cdm/kahu/client/clientset/versioned/typed/kahu/v1"
 	"github.com/soda-cdm/kahu/client/informers/externalversions"
-	kahulister "github.com/soda-cdm/kahu/client/listers/kahu/v1beta1"
+	kahulister "github.com/soda-cdm/kahu/client/listers/kahu/v1"
 	"github.com/soda-cdm/kahu/controllers"
 	"github.com/soda-cdm/kahu/discovery"
 )
@@ -73,11 +74,11 @@ func NewController(kubeClient kubernetes.Interface,
 		kubeClient:           kubeClient,
 		dynamicClient:        dynamicClient,
 		discoveryHelper:      discoveryHelper,
-		restoreClient:        kahuClient.KahuV1beta1().Restores(),
-		restoreLister:        informer.Kahu().V1beta1().Restores().Lister(),
-		backupLister:         informer.Kahu().V1beta1().Backups().Lister(),
-		backupLocationLister: informer.Kahu().V1beta1().BackupLocations().Lister(),
-		providerLister:       informer.Kahu().V1beta1().Providers().Lister(),
+		restoreClient:        kahuClient.KahuV1().Restores(),
+		restoreLister:        informer.Kahu().V1().Restores().Lister(),
+		backupLister:         informer.Kahu().V1().Backups().Lister(),
+		backupLocationLister: informer.Kahu().V1().BackupLocations().Lister(),
+		providerLister:       informer.Kahu().V1().Providers().Lister(),
 	}
 
 	// construct controller interface to process worker queue
@@ -90,7 +91,7 @@ func NewController(kubeClient kubernetes.Interface,
 	}
 
 	// register to informer to receive events and push events to worker queue
-	informer.Kahu().V1beta1().Restores().Informer().AddEventHandler(
+	informer.Kahu().V1().Restores().Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: genericController.Enqueue,
 		},
@@ -118,8 +119,9 @@ type restoreContext struct {
 
 func newRestoreContext(name string, ctrl *controller) *restoreContext {
 	backupObjectIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, newBackupObjectIndexers())
+	logger := ctrl.logger.WithField("restore", name)
 	return &restoreContext{
-		logger:               ctrl.logger.WithField("restore", name),
+		logger:               logger,
 		kubeClient:           ctrl.kubeClient,
 		restoreClient:        ctrl.restoreClient,
 		restoreLister:        ctrl.restoreLister,
@@ -129,7 +131,7 @@ func newRestoreContext(name string, ctrl *controller) *restoreContext {
 		dynamicClient:        ctrl.dynamicClient,
 		discoveryHelper:      ctrl.discoveryHelper,
 		backupObjectIndexer:  backupObjectIndexer,
-		filter:               constructFilterHandler(backupObjectIndexer),
+		filter:               constructFilterHandler(backupObjectIndexer, logger),
 		mutator:              constructMutationHandler(backupObjectIndexer),
 	}
 }
@@ -202,8 +204,9 @@ func (ctrl *controller) handler(key string) error {
 	if workCopyRestore.Status.StartTimestamp.IsZero() {
 		time := metav1.Now()
 		workCopyRestore.Status.StartTimestamp = &time
-		if workCopyRestore.Status.Phase == "" {
-			workCopyRestore.Status.Phase = kahuapi.RestorePhaseInit
+		if workCopyRestore.Status.Stage == "" {
+			workCopyRestore.Status.State = kahuapi.RestoreStateProcessing
+			workCopyRestore.Status.Stage = kahuapi.RestoreStageInitial
 		}
 		workCopyRestore, err = restoreCtx.updateRestoreStatus(workCopyRestore)
 		if err != nil {
@@ -221,16 +224,16 @@ func (ctx *restoreContext) runRestore(restore *kahuapi.Restore) error {
 	var err error
 	ctx.logger.Infof("Processing restore for %s", restore.Name)
 	// handle restore with stages
-	switch restore.Status.Phase {
-	case "", kahuapi.RestorePhaseInit:
-		ctx.logger.Infof("Restore in %s phase", kahuapi.RestorePhaseInit)
+	switch restore.Status.Stage {
+	case "", kahuapi.RestoreStageInitial:
+		ctx.logger.Infof("Restore in %s phase", kahuapi.RestoreStageInitial)
 
 		// validate restore
 		ctx.validateRestore(restore)
 		if len(restore.Status.ValidationErrors) > 0 {
 			ctx.logger.Errorf("Restore validation failed. %s",
 				strings.Join(restore.Status.ValidationErrors, ","))
-			restore.Status.Phase = kahuapi.RestorePhaseFailedValidation
+			restore.Status.State = kahuapi.RestoreStateFailed
 			restore, err = ctx.updateRestoreStatus(restore)
 			return err
 		}
@@ -248,19 +251,19 @@ func (ctx *restoreContext) runRestore(restore *kahuapi.Restore) error {
 
 		ctx.logger.Info("Restore specification validation success")
 		// update status to metadata restore
-		restore.Status.Phase = kahuapi.RestorePhaseMeta
+		restore.Status.Stage = kahuapi.RestoreStageResources
 		restore, err = ctx.updateRestoreStatus(restore)
 		if err != nil {
 			ctx.logger.Errorf("Restore status update failed. %s", err)
 			return err
 		}
 		fallthrough
-	case kahuapi.RestorePhaseMeta:
-		ctx.logger.Infof("Restore in %s phase", kahuapi.RestorePhaseMeta)
+	case kahuapi.RestoreStageResources:
+		ctx.logger.Infof("Restore in %s phase", kahuapi.RestoreStageResources)
 		// metadata restore should be last step for restore
 		return ctx.processMetadataRestore(restore)
 	default:
-		ctx.logger.Warnf("Ignoring restore phase %s", restore.Status.Phase)
+		ctx.logger.Warnf("Ignoring restore stage %s", restore.Status.Stage)
 	}
 
 	return nil
@@ -279,14 +282,22 @@ func (ctx *restoreContext) validateRestore(restore *kahuapi.Restore) {
 	}
 
 	// resource validation
-	includeResources := sets.NewString(restore.Spec.IncludeResources...)
-	excludeResources := sets.NewString(restore.Spec.ExcludeResources...)
-	// check common namespace name in include/exclude list
-	if intersection := includeResources.Intersection(excludeResources); intersection.Len() > 0 {
-		restore.Status.ValidationErrors =
-			append(restore.Status.ValidationErrors,
-				fmt.Sprintf("common resource name (%s) in include and exclude resource list",
-					strings.Join(intersection.List(), ",")))
+	// check regular expression validity
+	for _, resourceSpec := range restore.Spec.IncludeResources {
+		if _, err := regexp.Compile(resourceSpec.Name); err != nil {
+			restore.Status.ValidationErrors =
+				append(restore.Status.ValidationErrors,
+					fmt.Sprintf("invalid include resource name specification name %s",
+						resourceSpec.Name))
+		}
+	}
+	for _, resourceSpec := range restore.Spec.ExcludeResources {
+		if _, err := regexp.Compile(resourceSpec.Name); err != nil {
+			restore.Status.ValidationErrors =
+				append(restore.Status.ValidationErrors,
+					fmt.Sprintf("invalid include resource name specification name %s",
+						resourceSpec.Name))
+		}
 	}
 }
 

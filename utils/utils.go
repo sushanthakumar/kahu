@@ -22,7 +22,6 @@ import (
 	"syscall"
 
 	log "github.com/sirupsen/logrus"
-
 	"google.golang.org/grpc"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
@@ -30,7 +29,7 @@ import (
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/soda-cdm/kahu/apis/kahu/v1beta1"
+	"github.com/soda-cdm/kahu/apis/kahu/v1"
 	metaservice "github.com/soda-cdm/kahu/providerframework/metaservice/lib/go"
 )
 
@@ -82,6 +81,7 @@ func GetMetaserviceBackupClient(address string, port uint) metaservice.MetaServi
 		log.Errorf("error getting grpc connection %s", err)
 		return nil
 	}
+	log.Infof("GetMetaserviceBackupClient grpcconn done")
 	metaClient := metaservice.NewMetaServiceClient(grpcconn)
 
 	backupClient, err := metaClient.Backup(context.Background())
@@ -90,6 +90,16 @@ func GetMetaserviceBackupClient(address string, port uint) metaservice.MetaServi
 		return nil
 	}
 	return backupClient
+}
+
+func GetMetaserviceDeleteClient(address string, port uint) metaservice.MetaServiceClient {
+
+	grpcconn, err := metaservice.NewLBDial(fmt.Sprintf("%s:%d", address, port), grpc.WithInsecure())
+	if err != nil {
+		log.Errorf("error getting grpc connection %s", err)
+		return nil
+	}
+	return metaservice.NewMetaServiceClient(grpcconn)
 }
 
 func GetSubItemStrings(allList []string, input string, isRegex bool) []string {
@@ -111,13 +121,12 @@ func GetSubItemStrings(allList []string, input string, isRegex bool) []string {
 	return subItemList
 }
 
-func FindMatchedStrings(kind string, allList []string, includeList, excludeList []v1beta1.ResourceIncluder) []string {
+func FindMatchedStrings(kind string, allList []string, includeList, excludeList []v1.ResourceIncluder) []string {
 	var collectAllIncludeds []string
 	var collectAllExcludeds []string
-	var resultantStrings []string
 
 	if len(includeList) == 0 {
-		resultantStrings = allList
+		collectAllIncludeds = allList
 	}
 	for _, resource := range includeList {
 		if resource.Kind == kind {
@@ -132,8 +141,8 @@ func FindMatchedStrings(kind string, allList []string, includeList, excludeList 
 		}
 	}
 	if len(collectAllIncludeds) > 0 {
-		resultantStrings = GetResultantItems(allList, collectAllIncludeds, collectAllExcludeds)
+		collectAllIncludeds = GetResultantItems(allList, collectAllIncludeds, collectAllExcludeds)
 	}
 
-	return resultantStrings
+	return collectAllIncludeds
 }

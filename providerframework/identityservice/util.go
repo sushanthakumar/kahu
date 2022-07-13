@@ -21,11 +21,10 @@ import (
 
 	"google.golang.org/grpc"
 
+	apiv1 "github.com/soda-cdm/kahu/apis/kahu/v1"
+	kahuClient "github.com/soda-cdm/kahu/client"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	apiv1beta1 "github.com/soda-cdm/kahu/apis/kahu/v1beta1"
-	kahuClient "github.com/soda-cdm/kahu/client"
 )
 
 const (
@@ -34,7 +33,7 @@ const (
 )
 
 // registerProvider creates CRD entry on behalf of the provider getting added.
-func registerProvider(ctx context.Context, conn *grpc.ClientConnInterface, providerType apiv1beta1.ProviderType) error {
+func registerProvider(ctx context.Context, conn *grpc.ClientConnInterface, providerType apiv1.ProviderType) error {
 	providerInfo, err := GetProviderInfo(ctx, conn)
 	if err != nil {
 		return err
@@ -51,7 +50,10 @@ func registerProvider(ctx context.Context, conn *grpc.ClientConnInterface, provi
 }
 
 // createProviderCR creates CRD entry on behalf of the provider getting added.
-func createProviderCR(providerInfo ProviderInfo, providerType apiv1beta1.ProviderType, providerCapabilities map[string]bool) error {
+func createProviderCR(
+	providerInfo ProviderInfo,
+	providerType apiv1.ProviderType,
+	providerCapabilities map[string]bool) error {
 	cfg := kahuClient.NewFactoryConfig()
 	clientFactory := kahuClient.NewFactory(agentBaseName, cfg)
 	client, err := clientFactory.KahuClient()
@@ -60,35 +62,36 @@ func createProviderCR(providerInfo ProviderInfo, providerType apiv1beta1.Provide
 	}
 
 	// Create provider CRD as it is not found and update the status
-	_, err = client.KahuV1beta1().Providers().Get(context.TODO(), providerInfo.provider, metav1.GetOptions{})
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-		provider := &apiv1beta1.Provider{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: providerInfo.provider,
-			},
-			Spec: apiv1beta1.ProviderSpec{
-				Version:      providerInfo.version,
-				Type:         providerType,
-				Manifest:     providerInfo.manifest,
-				Capabilities: providerCapabilities,
-			},
-		}
-
-		provider, err = client.KahuV1beta1().Providers().Create(context.TODO(), provider, metav1.CreateOptions{})
-		if err != nil {
-			return err
-		}
-
-		provider.Status.State = apiv1beta1.ProviderStateAvailable
-
-		provider, err = client.KahuV1beta1().Providers().UpdateStatus(context.TODO(), provider, metav1.UpdateOptions{})
-		if err != nil {
-			return err
-		}
+	_, err = client.KahuV1().Providers().Get(context.TODO(), providerInfo.provider, metav1.GetOptions{})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return err
 	}
 
+	provider := &apiv1.Provider{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: providerInfo.provider,
+		},
+		Spec: apiv1.ProviderSpec{
+			Version:      providerInfo.version,
+			Type:         providerType,
+			Manifest:     providerInfo.manifest,
+			Capabilities: providerCapabilities,
+		},
+	}
+
+	provider, err = client.KahuV1().Providers().Create(context.TODO(), provider, metav1.CreateOptions{})
+	if err != nil {
+		return err
+	}
+
+	provider.Status.State = apiv1.ProviderStateAvailable
+
+	provider, err = client.KahuV1().Providers().UpdateStatus(context.TODO(), provider, metav1.UpdateOptions{})
+	if err != nil {
+		return err
+	}
 	return nil
 }

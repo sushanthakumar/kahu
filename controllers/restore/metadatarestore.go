@@ -30,7 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	kahuapi "github.com/soda-cdm/kahu/apis/kahu/v1beta1"
+	kahuapi "github.com/soda-cdm/kahu/apis/kahu/v1"
 	metaservice "github.com/soda-cdm/kahu/providerframework/metaservice/lib/go"
 	"github.com/soda-cdm/kahu/utils"
 )
@@ -71,7 +71,7 @@ func (ctx *restoreContext) processMetadataRestore(restore *kahuapi.Restore) erro
 	// fetch backup content and cache them
 	err = ctx.fetchBackupContent(backupInfo.backupProvider, backupIdentifier, restore)
 	if err != nil {
-		restore.Status.Phase = kahuapi.RestorePhaseFailed
+		restore.Status.State = kahuapi.RestoreStateFailed
 		restore.Status.FailureReason = fmt.Sprintf("Failed to get backup content. %s",
 			err)
 		restore, err = ctx.updateRestoreStatus(restore)
@@ -81,7 +81,7 @@ func (ctx *restoreContext) processMetadataRestore(restore *kahuapi.Restore) erro
 	// filter resources from cache
 	err = ctx.filter.handle(restore)
 	if err != nil {
-		restore.Status.Phase = kahuapi.RestorePhaseFailed
+		restore.Status.State = kahuapi.RestoreStateFailed
 		errMsg := fmt.Sprintf("Failed to filter resources. %s", err)
 		restore.Status.FailureReason = errMsg
 		restore, err = ctx.updateRestoreStatus(restore)
@@ -91,7 +91,7 @@ func (ctx *restoreContext) processMetadataRestore(restore *kahuapi.Restore) erro
 	// add mutation
 	err = ctx.mutator.handle(restore)
 	if err != nil {
-		restore.Status.Phase = kahuapi.RestorePhaseFailed
+		restore.Status.State = kahuapi.RestoreStateFailed
 		restore.Status.FailureReason = fmt.Sprintf("Failed to mutate resources. %s", err)
 		restore, err = ctx.updateRestoreStatus(restore)
 		return err
@@ -100,7 +100,7 @@ func (ctx *restoreContext) processMetadataRestore(restore *kahuapi.Restore) erro
 	// process CRD resource first
 	err = ctx.applyCRD()
 	if err != nil {
-		restore.Status.Phase = kahuapi.RestorePhaseFailed
+		restore.Status.State = kahuapi.RestoreStateFailed
 		restore.Status.FailureReason = fmt.Sprintf("Failed to apply CRD resources. %s", err)
 		restore, err = ctx.updateRestoreStatus(restore)
 		return err
@@ -109,13 +109,14 @@ func (ctx *restoreContext) processMetadataRestore(restore *kahuapi.Restore) erro
 	// process resources
 	err = ctx.applyIndexedResource()
 	if err != nil {
-		restore.Status.Phase = kahuapi.RestorePhaseFailed
+		restore.Status.State = kahuapi.RestoreStateFailed
 		restore.Status.FailureReason = fmt.Sprintf("Failed to apply resources. %s", err)
 		restore, err = ctx.updateRestoreStatus(restore)
 		return err
 	}
 
-	restore.Status.Phase = kahuapi.RestorePhaseCompleted
+	restore.Status.Stage = kahuapi.RestoreStageFinished
+	restore.Status.State = kahuapi.RestoreStateCompleted
 	restore, err = ctx.updateRestoreStatus(restore)
 	return err
 }

@@ -24,10 +24,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime"
+	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	kahuv1beta1 "github.com/soda-cdm/kahu/apis/kahu/v1beta1"
+	kahuv1 "github.com/soda-cdm/kahu/apis/kahu/v1"
 	"github.com/soda-cdm/kahu/client"
 	"github.com/soda-cdm/kahu/client/clientset/versioned"
 	"github.com/soda-cdm/kahu/client/informers/externalversions"
@@ -36,10 +36,12 @@ import (
 	"github.com/soda-cdm/kahu/controllers/backup"
 	"github.com/soda-cdm/kahu/controllers/restore"
 	"github.com/soda-cdm/kahu/discovery"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type ControllerManager struct {
 	ctx                      context.Context
+	runtimeClient            runtimeclient.Client
 	restConfig               *rest.Config
 	controllerRuntimeManager manager.Manager
 	completeConfig           *config.CompletedConfig
@@ -55,7 +57,7 @@ func NewControllerManager(ctx context.Context,
 	informerFactory externalversions.SharedInformerFactory) (*ControllerManager, error) {
 
 	scheme := runtime.NewScheme()
-	kahuv1beta1.AddToScheme(scheme)
+	kahuv1.AddToScheme(scheme)
 
 	clientConfig, err := clientFactory.ClientConfig()
 	if err != nil {
@@ -71,6 +73,7 @@ func NewControllerManager(ctx context.Context,
 
 	return &ControllerManager{
 		ctx:                      ctx,
+		runtimeClient:            ctrlRuntimeManager.GetClient(),
 		restConfig:               clientConfig,
 		controllerRuntimeManager: ctrlRuntimeManager,
 		completeConfig:           completeConfig,
@@ -85,10 +88,12 @@ func (mgr *ControllerManager) InitControllers() (map[string]controllers.Controll
 	availableControllers := make(map[string]controllers.Controller, 0)
 	// add controllers here
 	// integrate backup controller
+
 	backupController, err := backup.NewController(&mgr.completeConfig.BackupControllerConfig,
+		mgr.runtimeClient,
 		mgr.restConfig,
 		mgr.kahuClient,
-		mgr.informerFactory.Kahu().V1beta1().Backups())
+		mgr.informerFactory.Kahu().V1().Backups())
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize backup controller. %s", err)
 	}

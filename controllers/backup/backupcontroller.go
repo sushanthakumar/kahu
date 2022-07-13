@@ -37,14 +37,18 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
-	"github.com/soda-cdm/kahu/apis/kahu/v1beta1"
-	"github.com/soda-cdm/kahu/client/clientset/versioned"
-	kahuv1client "github.com/soda-cdm/kahu/client/clientset/versioned/typed/kahu/v1beta1"
-	kahuinformer "github.com/soda-cdm/kahu/client/informers/externalversions/kahu/v1beta1"
-	kahulister "github.com/soda-cdm/kahu/client/listers/kahu/v1beta1"
-	"github.com/soda-cdm/kahu/controllers"
-	"github.com/soda-cdm/kahu/utils"
 	"k8s.io/client-go/kubernetes/scheme"
+
+	"github.com/soda-cdm/kahu/apis/kahu/v1"
+	"github.com/soda-cdm/kahu/client/clientset/versioned"
+	kahuv1client "github.com/soda-cdm/kahu/client/clientset/versioned/typed/kahu/v1"
+	kahuinformer "github.com/soda-cdm/kahu/client/informers/externalversions/kahu/v1"
+	kahulister "github.com/soda-cdm/kahu/client/listers/kahu/v1"
+	"github.com/soda-cdm/kahu/controllers"
+	"github.com/soda-cdm/kahu/hooks"
+	"github.com/soda-cdm/kahu/utils"
+	runtimeclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
 const (
@@ -59,6 +63,7 @@ type Config struct {
 
 type controller struct {
 	config               *Config
+	runtimeClinet        runtimeclient.Client
 	logger               log.FieldLogger
 	restClientconfig     *restclient.Config
 	genericController    controllers.Controller
@@ -67,20 +72,23 @@ type controller struct {
 	backupLister         kahulister.BackupLister
 	backupClient         kahuv1client.BackupInterface
 	backupLocationClient kahuv1client.BackupLocationInterface
+	execHook             *hooks.Hooks
 }
 
 func NewController(config *Config,
+	rtClient runtimeclient.Client,
 	restClientconfig *restclient.Config,
 	kahuClient versioned.Interface,
 	backupInformer kahuinformer.BackupInformer) (controllers.Controller, error) {
 
 	logger := log.WithField("controller", controllerName)
 	backupController := &controller{
+		runtimeClinet:        rtClient,
 		kahuClient:           kahuClient,
 		backupLister:         backupInformer.Lister(),
 		restClientconfig:     restClientconfig,
-		backupClient:         kahuClient.KahuV1beta1().Backups(),
-		backupLocationClient: kahuClient.KahuV1beta1().BackupLocations(),
+		backupClient:         kahuClient.KahuV1().Backups(),
+		backupLocationClient: kahuClient.KahuV1().BackupLocations(),
 		config:               config,
 		logger:               logger,
 	}
@@ -88,15 +96,15 @@ func NewController(config *Config,
 	// register to informer to receive events and push events to worker queue
 	backupInformer.Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
-			AddFunc:    backupController.handleAdd,
-			DeleteFunc: backupController.handleDel,
+			AddFunc: backupController.handleAdd,
+			UpdateFunc: backupController.handleUpdate,
 		},
 	)
 
 	// construct controller interface to process worker queue
 	genericController, err := controllers.NewControllerBuilder(controllerName).
 		SetLogger(logger).
-		SetHandler(backupController.doBackup).
+		SetHandler(backupController.processBackup).
 		Build()
 	if err != nil {
 		return nil, err
@@ -107,7 +115,7 @@ func NewController(config *Config,
 	return genericController, err
 }
 
-func (c *controller) doBackup(key string) error {
+func (c *controller) processBackup(key string) error {
 	_, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		c.logger.Errorf("splitting key into namespace and name, error %s\n", err.Error())
@@ -123,6 +131,27 @@ func (c *controller) doBackup(key string) error {
 		}
 		return err
 	}
+	if backup.DeletionTimestamp == nil {
+		c.logger.Infoln("Backup should be performed")
+		err = c.doBackup(backup)
+		if err != nil {
+			return err
+		}
+	} else {
+		c.logger.Infoln("Delete should be performed")
+	}
+
+	return err
+}
+
+func (c *controller) doBackup(backup *v1.Backup) error {
+
+	// setting finanlizer
+	controllerutil.AddFinalizer(backup, "backup-controller-finalizer")
+	err := c.runtimeClinet.Update(context.TODO(), backup)
+	if err != nil {
+		return err
+	}
 
 	c.logger.WithField(controllerOps, utils.NamespaceAndName(backup)).
 		Info("Setting up backup log")
@@ -133,9 +162,10 @@ func (c *controller) doBackup(key string) error {
 	backuplocation, err := c.backupLocationClient.Get(context.Background(), backupProvider, metav1.GetOptions{})
 	if err != nil {
 		c.logger.Errorf("failed to validate backup location, reason: %s", err)
-		backup.Status.Phase = v1beta1.BackupPhaseFailedValidation
+		backup.Status.State = v1.BackupStateFailed
+		backup.Status.Stage = v1.BackupStageInitial
 		backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
-		c.updateStatus(backup, c.backupClient, backup.Status.Phase)
+		c.updateStatus(backup, c.backupClient, backup.Status)
 		return err
 	}
 	c.logger.Debugf("the provider name in backuplocation:%s", backuplocation)
@@ -144,30 +174,37 @@ func (c *controller) doBackup(key string) error {
 	prepareBackupReq := c.prepareBackupRequest(backup)
 
 	if len(prepareBackupReq.Status.ValidationErrors) > 0 {
-		prepareBackupReq.Status.Phase = v1beta1.BackupPhaseFailedValidation
-		c.updateStatus(prepareBackupReq.Backup, c.backupClient, prepareBackupReq.Status.Phase)
+		prepareBackupReq.Status.State = v1.BackupStateFailed
+		c.updateStatus(prepareBackupReq.Backup, c.backupClient, prepareBackupReq.Status)
 		return err
 	} else {
-		prepareBackupReq.Status.Phase = v1beta1.BackupPhaseInProgress
+		prepareBackupReq.Status.State = v1.BackupStateProcessing
+		prepareBackupReq.Status.Stage = v1.BackupStageResources
+		prepareBackupReq.Status.ValidationErrors = []string{}
 	}
 	prepareBackupReq.Status.StartTimestamp = &metav1.Time{Time: time.Now()}
-	c.updateStatus(prepareBackupReq.Backup, c.backupClient, prepareBackupReq.Status.Phase)
+	c.updateStatus(prepareBackupReq.Backup, c.backupClient, prepareBackupReq.Status)
 
-	// start taking backup
+	// Initialize hooks
+	c.execHook, err = hooks.NewHooks(c.restClientconfig, backup.Spec.Hook.Resources)
+	if err != nil {
+		c.logger.Infof("failed to create backup hooks:%s", err)
+	}
 	err = c.runBackup(prepareBackupReq)
 	if err != nil {
-		prepareBackupReq.Status.Phase = v1beta1.BackupPhaseFailed
+		prepareBackupReq.Status.State = v1.BackupStateFailed
 	} else {
-		prepareBackupReq.Status.Phase = v1beta1.BackupPhaseCompleted
+		prepareBackupReq.Status.State = v1.BackupStateCompleted
+		prepareBackupReq.Status.Stage = v1.BackupStageFinished
 	}
 	prepareBackupReq.Status.LastBackup = &metav1.Time{Time: time.Now()}
 
-	c.logger.Infof("completed backup with status: %s", prepareBackupReq.Status.Phase)
-	c.updateStatus(prepareBackupReq.Backup, c.backupClient, prepareBackupReq.Status.Phase)
+	c.logger.Infof("completed backup with status: %s", prepareBackupReq.Status.Stage)
+	c.updateStatus(prepareBackupReq.Backup, c.backupClient, prepareBackupReq.Status)
 	return err
 }
 
-func (c *controller) prepareBackupRequest(backup *v1beta1.Backup) *PrepareBackup {
+func (c *controller) prepareBackupRequest(backup *v1.Backup) *PrepareBackup {
 	backupRequest := &PrepareBackup{
 		Backup: backup.DeepCopy(),
 	}
@@ -207,27 +244,44 @@ func (c *controller) prepareBackupRequest(backup *v1beta1.Backup) *PrepareBackup
 	}
 	ResultantNamespace = utils.GetResultantItems(allNamespace, backupRequest.Spec.IncludedNamespaces, backupRequest.Spec.ExcludedNamespaces)
 
-	// till now validation is ok. Set the backupphase as New to start backup
-	backupRequest.Status.Phase = v1beta1.BackupPhaseInit
+	// till now validation is ok. Set the BackupStage as New to start backup
+	backupRequest.Status.Stage = v1.BackupStageInitial
 
 	return backupRequest
 }
 
-func (c *controller) updateStatus(bkp *v1beta1.Backup, client kahuv1client.BackupInterface, phase v1beta1.BackupPhase) {
+func (c *controller) updateStatus(bkp *v1.Backup, client kahuv1client.BackupInterface, status v1.BackupStatus) {
 	backup, err := client.Get(context.Background(), bkp.Name, metav1.GetOptions{})
 	if err != nil {
 		c.logger.Errorf("failed to get backup for updating status :%+s", err)
 		return
 	}
 
-	if backup.Status.Phase == v1beta1.BackupPhaseCompleted && phase == v1beta1.BackupPhaseFailed {
-		backup.Status.Phase = v1beta1.BackupPhasePartiallyFailed
-	} else if backup.Status.Phase == v1beta1.BackupPhasePartiallyFailed {
-		backup.Status.Phase = v1beta1.BackupPhasePartiallyFailed
-	} else {
-		backup.Status.Phase = phase
+	if backup.Status.Stage == v1.BackupStageFinished {
+		// no need to update as backup completed
+		return
 	}
-	backup.Status.ValidationErrors = bkp.Status.ValidationErrors
+
+	if status.State != "" && status.State != backup.Status.State {
+		backup.Status.State = status.State
+	}
+
+	if status.Stage != "" && status.Stage != backup.Status.Stage {
+		backup.Status.Stage = status.Stage
+	}
+
+	if len(status.ValidationErrors) > 0 {
+		backup.Status.ValidationErrors = status.ValidationErrors
+	}
+
+	if backup.Status.StartTimestamp == nil && status.StartTimestamp != nil {
+		backup.Status.StartTimestamp = status.StartTimestamp
+	}
+
+	if backup.Status.LastBackup == nil && status.LastBackup != nil {
+		backup.Status.LastBackup = status.LastBackup
+	}
+
 	_, err = client.UpdateStatus(context.Background(), backup, metav1.UpdateOptions{})
 	if err != nil {
 		c.logger.Errorf("failed to update backup status :%+s", err)
@@ -236,10 +290,16 @@ func (c *controller) updateStatus(bkp *v1beta1.Backup, client kahuv1client.Backu
 	return
 }
 
-func (c *controller) runBackup(backup *PrepareBackup) error {
+func (c *controller) runBackup(backup *PrepareBackup) (error) {
 	c.logger.Infoln("starting to run backup")
+	var backupStatus = []string{}
 
 	backupClient := utils.GetMetaserviceBackupClient(c.config.MetaServiceAddress, c.config.MetaServicePort)
+	if backupClient == nil {
+		c.logger.Errorf("Unable to connect metadata service with addr %s port %s",
+			c.config.MetaServiceAddress, c.config.MetaServicePort)
+		return fmt.Errorf("Unable to connect metadata service")
+	}
 
 	err := backupClient.Send(&metaservice.BackupRequest{
 		Backup: &metaservice.BackupRequest_Identifier{
@@ -250,89 +310,104 @@ func (c *controller) runBackup(backup *PrepareBackup) error {
 	})
 
 	if err != nil {
-		c.logger.Errorf("Unable to connect metadata service %s", err)
+		c.logger.Errorf("Unable to send data to metadata service %s", err)
 		return err
 	}
 
 	resultantResource := sets.NewString(ResultantResource...)
 	resultantNamespace := sets.NewString(ResultantNamespace...)
-	c.logger.Infof("backup will be taken for these resources:%s", resultantResource)
-	c.logger.Infof("backup will be taken for these namespaces:%s", resultantNamespace)
+	c.logger.Infof("backup will be taken for these resources:%+v", resultantResource)
+	c.logger.Infof("backup will be taken for these namespaces:%+v", resultantNamespace)
 
 	for ns, nsVal := range resultantNamespace {
 		c.logger.Infof("started backup for namespace:%s", ns)
 		for name, val := range resultantResource {
 			c.logger.Debug(nsVal, val)
 			switch name {
-			case "deployments":
+			case utils.Pod:
+				err = c.podBackup(ns, backup, backupClient)
+				if err != nil {
+					backup.Status.State = v1.BackupStateFailed
+				} else {
+					backup.Status.Stage = v1.BackupStageFinished
+				}
+			case utils.Deployment:
 				err = c.deploymentBackup(ns, backup, backupClient)
 				if err != nil {
-					backup.Status.Phase = v1beta1.BackupPhaseFailed
+					backup.Status.State = v1.BackupStateFailed
 				} else {
-					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+					backup.Status.Stage = v1.BackupStageFinished
 				}
-				c.updateStatus(backup.Backup, c.backupClient, backup.Status.Phase)
-			case "configmaps":
+			case utils.Configmap:
 				err = c.getConfigMapS(ns, backup, backupClient)
 				if err != nil {
-					backup.Status.Phase = v1beta1.BackupPhaseFailed
+					backup.Status.State = v1.BackupStateFailed
 				} else {
-					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+					backup.Status.Stage = v1.BackupStageFinished
 				}
-			case "persistentvolumeclaims":
+			case utils.Pvc:
 				err = c.getPersistentVolumeClaims(ns, backup, backupClient)
 				if err != nil {
-					backup.Status.Phase = v1beta1.BackupPhaseFailed
+					backup.Status.State = v1.BackupStateFailed
 				} else {
-					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+					backup.Status.Stage = v1.BackupStageFinished
 				}
-			case "storageclasses":
+			case utils.Sc:
 				err = c.getStorageClass(backup, backupClient)
 				if err != nil {
-					backup.Status.Phase = v1beta1.BackupPhaseFailed
+					backup.Status.State = v1.BackupStateFailed
 				} else {
-					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+					backup.Status.Stage = v1.BackupStageFinished
 				}
-			case "services":
+			case utils.Service:
 				err = c.getServices(ns, backup, backupClient)
 				if err != nil {
-					backup.Status.Phase = v1beta1.BackupPhaseFailed
+					backup.Status.State = v1.BackupStateFailed
 				} else {
-					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+					backup.Status.Stage = v1.BackupStageFinished
 				}
-			case "secrets":
+			case utils.Secret:
 				err = c.getSecrets(ns, backup, backupClient)
 				if err != nil {
-					backup.Status.Phase = v1beta1.BackupPhaseFailed
+					backup.Status.State = v1.BackupStateFailed
 				} else {
-					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+					backup.Status.Stage = v1.BackupStageFinished
 				}
-			case "endpoints":
+			case utils.Endpoint:
 				err = c.getEndpoints(ns, backup, backupClient)
 				if err != nil {
-					backup.Status.Phase = v1beta1.BackupPhaseFailed
+					backup.Status.State = v1.BackupStateFailed
 				} else {
-					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+					backup.Status.Stage = v1.BackupStageFinished
 				}
-			case "replicasets":
-				err = c.getReplicasets(ns, backup, backupClient)
+			case utils.Replicaset:
+				err = c.replicaSetBackup(ns, backup, backupClient)
 				if err != nil {
-					backup.Status.Phase = v1beta1.BackupPhaseFailed
+					backup.Status.State = v1.BackupStateFailed
 				} else {
-					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+					backup.Status.Stage = v1.BackupStageFinished
 				}
-			case "statefulsets":
+			case utils.Statefulset:
 				err = c.getStatefulsets(ns, backup, backupClient)
 				if err != nil {
-					backup.Status.Phase = v1beta1.BackupPhaseFailed
+					backup.Status.State = v1.BackupStateFailed
 				} else {
-					backup.Status.Phase = v1beta1.BackupPhaseCompleted
+					backup.Status.Stage = v1.BackupStageFinished
+				}
+			case utils.Daemonset:
+				err = c.daemonSetBackup(ns, backup, backupClient)
+				if err != nil {
+					backup.Status.State = v1.BackupStateFailed
+				} else {
+					backup.Status.Stage = v1.BackupStageFinished
 				}
 			default:
 				continue
 			}
 		}
 	}
+
+	c.logger.Infof("the intermediate status:%s", backupStatus)
 	_, err = backupClient.CloseAndRecv()
 
 	return err
@@ -378,29 +453,48 @@ func (c *controller) backupSend(obj runtime.Object, metadataName string,
 	return err
 }
 
-func (c *controller) deleteBackup(name string, backup *v1beta1.Backup) {
+func (c *controller) deleteBackup(backup *v1.Backup) error {
 	// TODO: delete need to be added
-	c.logger.Infof("delete is called for backup:%s", name)
+	deleteRequest := &metaservice.DeleteRequest{
+		Id: &metaservice.BackupIdentifier{
+			BackupHandle: backup.Name,
+		},
+	}
 
+	metaClient := utils.GetMetaserviceDeleteClient(c.config.MetaServiceAddress, c.config.MetaServicePort)
+	if metaClient == nil {
+		c.logger.Errorf("unable to connect metadata service with addr %s port %s",
+			c.config.MetaServiceAddress, c.config.MetaServicePort)
+		return fmt.Errorf("unable to connect metadata service")
+	}
+
+	_, err := metaClient.Delete(context.Background(), deleteRequest)
+	if err != nil {
+		c.logger.Errorf("unable to delete metadata backup file %v", backup.Name)
+		return fmt.Errorf("unable to delete metadata backup file %v", backup.Name)
+	}
+
+	if backup.GetFinalizers() != nil {
+		c.logger.Infof("started to update backup object")
+		controllerutil.RemoveFinalizer(backup, "backup-controller-finalizer")
+		err := c.runtimeClinet.Update(context.TODO(), backup)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *controller) handleAdd(obj interface{}) {
-	backup := obj.(*v1beta1.Backup)
-
-	switch backup.Status.Phase {
-	case "", v1beta1.BackupPhaseInit:
-	default:
-		c.logger.WithFields(log.Fields{
-			"backup": utils.NamespaceAndName(backup),
-			"phase":  backup.Status.Phase,
-		}).Infof("Backup: %s is not New, so will not be processed", backup.Name)
-		return
-	}
 	c.genericController.Enqueue(obj)
 }
 
-func (c *controller) handleDel(obj interface{}) {
-	c.genericController.Enqueue(obj)
+func (c *controller) handleUpdate(oldobj, obj interface{}) {
+	backup := obj.(*v1.Backup)
+
+	if backup.DeletionTimestamp != nil {
+		c.deleteBackup(backup)
+	}
 }
 
 // addTypeInformationToObject adds TypeMeta information to a runtime.Object based upon the loaded scheme.Scheme
