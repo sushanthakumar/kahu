@@ -3,11 +3,11 @@ kind: Backup
 metadata:
   name: backup-demo-ns-1
 spec:
-  # includedResources:
-  excludedResources: []
-  includedNamespaces: [kube-system]
+  # includeResources:
+  excludeResources: []
+  includeNamespaces: [kube-system]
   metadataLocation: nfs
-  includedResources:
+  includeResources:
     - name:
       kind: Deployment
       isRegex: true

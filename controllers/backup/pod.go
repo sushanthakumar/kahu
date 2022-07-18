@@ -72,8 +72,8 @@ func (c *controller) podBackup(namespace string,
 		podAllList = append(podAllList, pod.Name)
 	}
 
-	podAllList = utils.FindMatchedStrings(utils.Pod, podAllList, backup.Spec.IncludedResources,
-		backup.Spec.ExcludedResources)
+	podAllList = utils.FindMatchedStrings(utils.Pod, podAllList, backup.Spec.IncludeResources,
+		backup.Spec.ExcludeResources)
 
 	// only for backup
 	for _, pod := range podList.Items {

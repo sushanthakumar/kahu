@@ -15,7 +15,26 @@ spec:
     singular: backup
   scope: Cluster
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.metadataLocation
+      name: MetadataLocation
+      type: string
+    - jsonPath: .spec.includeProviders
+      name: VolumeBackupLocations
+      type: string
+    - jsonPath: .status.stage
+      name: Stage
+      type: string
+    - jsonPath: .status.state
+      name: State
+      type: string
+    - jsonPath: .status.startTimestamp
+      name: StartTimestamp
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
         properties:
@@ -41,20 +60,20 @@ spec:
                 description: EnableMetadataBackup tells whether volumes(PV) backup
                   should be taken or not
                 type: boolean
-              excludedNamespaces:
-                description: ExcludedNamespaces is a list of all namespaces excluded
+              excludeNamespaces:
+                description: ExcludeNamespaces is a list of all namespaces excluded
                   for backup
                 items:
                   type: string
                 type: array
-              excludedProviders:
-                description: ExcludedProviders is a list of all provideres excluded
+              excludeProviders:
+                description: ExcludeProviders is a list of all providers excluded
                   for backup
                 items:
                   type: string
                 type: array
-              excludedResources:
-                description: ExcludedResources is a list of all resources excluded
+              excludeResources:
+                description: ExcludeResources is a list of all resources excluded
                   for backup
                 items:
                   properties:
@@ -75,14 +94,14 @@ spec:
                       description: ResourceHookSpec is hook which should be executed
                         at different phase of backup
                       properties:
-                        excludedNamespaces:
-                          description: ExcludedNamespaces is a list of all namespaces
+                        excludeNamespaces:
+                          description: ExcludeNamespaces is a list of all namespaces
                             excluded for hook
                           items:
                             type: string
                           type: array
-                        excludedResources:
-                          description: ExcludedResources is a list of all resources
+                        excludeResources:
+                          description: ExcludeResources is a list of all resources
                             excluded for backup
                           items:
                             properties:
@@ -94,14 +113,14 @@ spec:
                                 type: string
                             type: object
                           type: array
-                        includedNamespaces:
-                          description: IncludedNamespaces is a list of all namespaces
+                        includeNamespaces:
+                          description: IncludeNamespaces is a list of all namespaces
                             included for hook. If empty, all namespaces are included
                           items:
                             type: string
                           type: array
-                        includedResources:
-                          description: IncludedResources is a list of all resources
+                        includeResources:
+                          description: IncludeResources is a list of all resources
                             included for hook. If empty, all resources are included
                           items:
                             properties:
@@ -249,20 +268,20 @@ spec:
                       type: object
                     type: array
                 type: object
-              includedNamespaces:
-                description: IncludedNamespaces is a list of all namespaces included
+              includeNamespaces:
+                description: IncludeNamespaces is a list of all namespaces included
                   for backup. If empty, all namespaces are included
                 items:
                   type: string
                 type: array
-              includedProviders:
-                description: IncludedProviders is a list of all provideres included
+              includeProviders:
+                description: IncludeProviders is a list of all provideres included
                   for backup. If empty, all provideres are included
                 items:
                   type: string
                 type: array
-              includedResources:
-                description: IncludedResources is a list of all resources included
+              includeResources:
+                description: IncludeResources is a list of all resources included
                   for backup. If empty, all resources are included
                 items:
                   properties:

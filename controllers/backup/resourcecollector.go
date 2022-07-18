@@ -57,8 +57,8 @@ func (c *controller) getServices(namespace string, backup *PrepareBackup,
 		allServicesList = append(allServicesList, sc.Name)
 	}
 
-	allServicesList = utils.FindMatchedStrings(utils.Service, allServicesList, backup.Spec.IncludedResources,
-		backup.Spec.ExcludedResources)
+	allServicesList = utils.FindMatchedStrings(utils.Service, allServicesList, backup.Spec.IncludeResources,
+		backup.Spec.ExcludeResources)
 
 	for _, service := range allServices.Items {
 		if utils.Contains(allServicesList, service.Name) {
@@ -119,8 +119,8 @@ func (c *controller) getConfigMapS(namespace string, backup *PrepareBackup,
 		configAllLits = append(configAllLits, deployment.Name)
 	}
 
-	configAllLits = utils.FindMatchedStrings(utils.Configmap, configAllLits, backup.Spec.IncludedResources,
-		backup.Spec.ExcludedResources)
+	configAllLits = utils.FindMatchedStrings(utils.Configmap, configAllLits, backup.Spec.IncludeResources,
+		backup.Spec.ExcludeResources)
 
 	for _, item := range configList.Items {
 		if utils.Contains(configAllLits, item.Name) {
@@ -164,8 +164,8 @@ func (c *controller) getSecrets(namespace string, backup *PrepareBackup,
 		allSecretsList = append(allSecretsList, sc.Name)
 	}
 
-	allSecretsList = utils.FindMatchedStrings(utils.Secret, allSecretsList, backup.Spec.IncludedResources,
-		backup.Spec.ExcludedResources)
+	allSecretsList = utils.FindMatchedStrings(utils.Secret, allSecretsList, backup.Spec.IncludeResources,
+		backup.Spec.ExcludeResources)
 
 	for _, secret := range secretList.Items {
 		if utils.Contains(allSecretsList, secret.Name) {
@@ -227,8 +227,8 @@ func (c *controller) getEndpoints(namespace string, backup *PrepareBackup,
 		allendpointList = append(allendpointList, sc.Name)
 	}
 
-	allendpointList = utils.FindMatchedStrings(utils.Endpoint, allendpointList, backup.Spec.IncludedResources,
-		backup.Spec.ExcludedResources)
+	allendpointList = utils.FindMatchedStrings(utils.Endpoint, allendpointList, backup.Spec.IncludeResources,
+		backup.Spec.ExcludeResources)
 
 	for _, endpoint := range endpointList.Items {
 		if utils.Contains(allendpointList, endpoint.Name) {
@@ -295,8 +295,8 @@ func (c *controller) replicaSetBackup(namespace string,
 		replicasetAllList = append(replicasetAllList, replicaset.Name)
 	}
 
-	replicasetAllList = utils.FindMatchedStrings(utils.Replicaset, replicasetAllList, backup.Spec.IncludedResources,
-		backup.Spec.ExcludedResources)
+	replicasetAllList = utils.FindMatchedStrings(utils.Replicaset, replicasetAllList, backup.Spec.IncludeResources,
+		backup.Spec.ExcludeResources)
 
 	for _, replicaset := range rList.Items {
 		if utils.Contains(replicasetAllList, replicaset.Name) {
@@ -358,8 +358,8 @@ func (c *controller) getStatefulsets(namespace string, backup *PrepareBackup,
 		allstatefulList = append(allstatefulList, sc.Name)
 	}
 
-	allstatefulList = utils.FindMatchedStrings(utils.Statefulset, allstatefulList, backup.Spec.IncludedResources,
-		backup.Spec.ExcludedResources)
+	allstatefulList = utils.FindMatchedStrings(utils.Statefulset, allstatefulList, backup.Spec.IncludeResources,
+		backup.Spec.ExcludeResources)
 
 	for _, stateful := range statefulList.Items {
 		if utils.Contains(allstatefulList, stateful.Name) {

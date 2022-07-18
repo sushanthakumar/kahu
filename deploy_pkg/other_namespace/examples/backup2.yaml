@@ -1,13 +1,13 @@
 apiVersion: kahu.io/v1
 kind: Backup
 metadata:
-  name: backup-demo-10
+  name: backup-kubesystem-10
 spec:
-  # includedResources:
-  excludedResources: []
-  includedNamespaces: [test-ns]
+  # includeResources:
+  excludeResources: []
+  includeNamespaces: [kube-system]
   metadataLocation: nfs
-  includedResources:
+  includeResources:
     - name:
       kind: PersistentVolumeClaim
       isRegex: true

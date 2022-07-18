@@ -78,8 +78,8 @@ func (c *controller) deploymentBackup(namespace string,
 		deploymentAllList = append(deploymentAllList, deployment.Name)
 	}
 
-	deploymentAllList = utils.FindMatchedStrings(utils.Deployment, deploymentAllList, backup.Spec.IncludedResources,
-		backup.Spec.ExcludedResources)
+	deploymentAllList = utils.FindMatchedStrings(utils.Deployment, deploymentAllList, backup.Spec.IncludeResources,
+		backup.Spec.ExcludeResources)
 
 	for _, deployment := range dList.Items {
 		if utils.Contains(deploymentAllList, deployment.Name) {
@@ -161,8 +161,8 @@ func (c *controller) daemonSetBackup(namespace string,
 		daemonsetAllList = append(daemonsetAllList, daemonset.Name)
 	}
 
-	daemonsetAllList = utils.FindMatchedStrings(utils.Daemonset, daemonsetAllList, backup.Spec.IncludedResources,
-		backup.Spec.ExcludedResources)
+	daemonsetAllList = utils.FindMatchedStrings(utils.Daemonset, daemonsetAllList, backup.Spec.IncludeResources,
+		backup.Spec.ExcludeResources)
 
 	for _, daemonset := range dList.Items {
 		if utils.Contains(daemonsetAllList, daemonset.Name) {
@@ -273,8 +273,8 @@ func (c *controller) getPersistentVolumeClaims(namespace string, backup *Prepare
 		allPVCList = append(allPVCList, pvc.Name)
 	}
 
-	allPVCList = utils.FindMatchedStrings(utils.Pvc, allPVCList, backup.Spec.IncludedResources,
-		backup.Spec.ExcludedResources)
+	allPVCList = utils.FindMatchedStrings(utils.Pvc, allPVCList, backup.Spec.IncludeResources,
+		backup.Spec.ExcludeResources)
 
 	for _, item := range allPVC.Items {
 		if utils.Contains(allPVCList, item.Name) {
@@ -334,8 +334,8 @@ func (c *controller) getStorageClass(backup *PrepareBackup,
 		allSCList = append(allSCList, sc.Name)
 	}
 
-	allSCList = utils.FindMatchedStrings(utils.Sc, allSCList, backup.Spec.IncludedResources,
-		backup.Spec.ExcludedResources)
+	allSCList = utils.FindMatchedStrings(utils.Sc, allSCList, backup.Spec.IncludeResources,
+		backup.Spec.ExcludeResources)
 
 	for _, item := range allSC.Items {
 		if utils.Contains(allSCList, item.Name) {

@@ -15,7 +15,26 @@ spec:
     singular: restore
   scope: Cluster
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.backupName
+      name: BackupName
+      type: string
+    - jsonPath: .status.stage
+      name: Stage
+      type: string
+    - jsonPath: .status.state
+      name: State
+      type: string
+    - jsonPath: .status.startTimestamp
+      name: StartTimestamp
+      type: string
+    - jsonPath: .status.completionTimestamp
+      name: CompletionTimestamp
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
         description: Restore is the Schema for the restores API

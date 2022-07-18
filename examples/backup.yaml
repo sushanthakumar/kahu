@@ -3,11 +3,11 @@ kind: Backup
 metadata:
   name: backup-demo-1
 spec:
-  # includedResources:
-  excludedResources: []
-  includedNamespaces: [default]
+  # includeResources:
+  excludeResources: []
+  includeNamespaces: [default]
   metadataLocation: nfs
-  includedResources:
+  includeResources:
     - name:
       kind: Deployment
       isRegex: true

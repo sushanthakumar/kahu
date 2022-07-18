@@ -150,6 +150,12 @@ type RestoreStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
+// +kubebuilder:printcolumn:name="BackupName",type=string,JSONPath=`.spec.backupName`
+// +kubebuilder:printcolumn:name="Stage",type=string,JSONPath=`.status.stage`
+// +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`
+// +kubebuilder:printcolumn:name="StartTimestamp",type=string,JSONPath=`.status.startTimestamp`
+// +kubebuilder:printcolumn:name="CompletionTimestamp",type=string,JSONPath=`.status.completionTimestamp`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // Restore is the Schema for the restores API
 type Restore struct {

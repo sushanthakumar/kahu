@@ -26,6 +26,12 @@ import (
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
+// +kubebuilder:printcolumn:name="MetadataLocation",type=string,JSONPath=`.spec.metadataLocation`
+// +kubebuilder:printcolumn:name="VolumeBackupLocations",type=string,JSONPath=`.spec.includeProviders`
+// +kubebuilder:printcolumn:name="Stage",type=string,JSONPath=`.status.stage`
+// +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`
+// +kubebuilder:printcolumn:name="StartTimestamp",type=string,JSONPath=`.status.startTimestamp`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 type Backup struct {
 	metav1.TypeMeta `json:",inline"`
@@ -53,14 +59,14 @@ type BackupSpec struct {
 	// +optional
 	Hook HookSpec `json:"hook,omitempty"`
 
-	// IncludedProviders is a list of all provideres included for backup. If empty, all provideres
+	// IncludeProviders is a list of all provideres included for backup. If empty, all provideres
 	// are included
 	// +optional
-	IncludedProviders []string `json:"includedProviders,omitempty"`
+	IncludeProviders []string `json:"includeProviders,omitempty"`
 
-	// ExcludedProviders is a list of all provideres excluded for backup
+	// ExcludeProviders is a list of all providers excluded for backup
 	// +optional
-	ExcludeProviders []string `json:"excludedProviders,omitempty"`
+	ExcludeProviders []string `json:"excludeProviders,omitempty"`
 
 	// EnableMetadataBackup tells whether metadata backup should be taken or not
 	// +optional
@@ -70,23 +76,23 @@ type BackupSpec struct {
 	// +optional
 	EnableVolumeBackup bool `json:"enableVolumeBackup,omitempty"`
 
-	// IncludedNamespaces is a list of all namespaces included for backup. If empty, all namespaces
+	// IncludeNamespaces is a list of all namespaces included for backup. If empty, all namespaces
 	// are included
 	// +optional
-	IncludedNamespaces []string `json:"includedNamespaces,omitempty"`
+	IncludeNamespaces []string `json:"includeNamespaces,omitempty"`
 
-	// ExcludedNamespaces is a list of all namespaces excluded for backup
+	// ExcludeNamespaces is a list of all namespaces excluded for backup
 	// +optional
-	ExcludedNamespaces []string `json:"excludedNamespaces,omitempty"`
+	ExcludeNamespaces []string `json:"excludeNamespaces,omitempty"`
 
-	// IncludedResources is a list of all resources included for backup. If empty, all resources
+	// IncludeResources is a list of all resources included for backup. If empty, all resources
 	// are included
 	// +optional
-	IncludedResources []ResourceIncluder `json:"includedResources,omitempty"`
+	IncludeResources []ResourceIncluder `json:"includeResources,omitempty"`
 
-	// ExcludedResources is a list of all resources excluded for backup
+	// ExcludeResources is a list of all resources excluded for backup
 	// +optional
-	ExcludedResources []ResourceIncluder `json:"excludedResources,omitempty"`
+	ExcludeResources []ResourceIncluder `json:"excludeResources,omitempty"`
 
 	// Label is used to filter the resources
 	// +optional
@@ -117,23 +123,23 @@ type ResourceHookSpec struct {
 	// +optional
 	Name string `json:"name"`
 
-	// IncludedNamespaces is a list of all namespaces included for hook. If empty, all namespaces
+	// IncludeNamespaces is a list of all namespaces included for hook. If empty, all namespaces
 	// are included
 	// +optional
-	IncludedNamespaces []string `json:"includedNamespaces,omitempty"`
+	IncludeNamespaces []string `json:"includeNamespaces,omitempty"`
 
-	// ExcludedNamespaces is a list of all namespaces excluded for hook
+	// ExcludeNamespaces is a list of all namespaces excluded for hook
 	// +optional
-	ExcludedNamespaces []string `json:"excludedNamespaces,omitempty"`
+	ExcludeNamespaces []string `json:"excludeNamespaces,omitempty"`
 
-	// IncludedResources is a list of all resources included for hook. If empty, all resources
+	// IncludeResources is a list of all resources included for hook. If empty, all resources
 	// are included
 	// +optional
-	IncludedResources []ResourceIncluder `json:"includedResources,omitempty"`
+	IncludeResources []ResourceIncluder `json:"includeResources,omitempty"`
 
-	// ExcludedResources is a list of all resources excluded for backup
+	// ExcludeResources is a list of all resources excluded for backup
 	// +optional
-	ExcludedResources []ResourceIncluder `json:"excludedResources,omitempty"`
+	ExcludeResources []ResourceIncluder `json:"excludeResources,omitempty"`
 
 	// Label is used to filter the resources
 	// +optional
@@ -149,7 +155,6 @@ type ResourceHookSpec struct {
 	// +optional
 	PostHooks []ResourceHook `json:"post,omitempty"`
 }
-
 
 // ResourceHook defines a hook for a resource.
 type ResourceHook struct {

@@ -3,19 +3,19 @@ kind: Backup
 metadata:
    name: backup-demo
 spec:
-   excludedResources: []
-   includedNamespaces: [default]
+   excludeResources: []
+   includeNamespaces: [default]
    metadataLocation: nfs
-   includedResources:
+   includeResources:
     - name:
       kind: Pod
       isRegex: true
    hook:
       resources:
       - name: kahu_hook1
-        includedNamespaces: [default]
-        excludedNamespaces: [test]
-        includedResources:
+        includeNamespaces: [default]
+        excludeNamespaces: [test]
+        includeResources:
         - name:
           kind: Pod
           isRegex: true
@@ -30,9 +30,9 @@ spec:
             onError: Fail
 
       - name: kahu_hook2
-        includedNamespaces: [default]
-        excludedNamespaces: [test]
-        includedResources:
+        includeNamespaces: [default]
+        excludeNamespaces: [test]
+        includeResources:
         - name:
           kind: Pod
           isRegex: true

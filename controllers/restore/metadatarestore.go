@@ -40,7 +40,7 @@ const (
 )
 
 var (
-	excludedResources = sets.NewString(
+	excludeResources = sets.NewString(
 		"Node",
 		"Namespace",
 		"Event",
@@ -117,6 +117,9 @@ func (ctx *restoreContext) processMetadataRestore(restore *kahuapi.Restore) erro
 
 	restore.Status.Stage = kahuapi.RestoreStageFinished
 	restore.Status.State = kahuapi.RestoreStateCompleted
+	restore.Status.State = kahuapi.RestoreStateCompleted
+	time := metav1.Now()
+	restore.Status.CompletionTimestamp = &time
 	restore, err = ctx.updateRestoreStatus(restore)
 	return err
 }
@@ -282,7 +285,7 @@ func (ctx *restoreContext) fetchBackupContent(backupProvider *kahuapi.Provider,
 }
 
 func (ctx *restoreContext) excludeResource(resource *unstructured.Unstructured) bool {
-	if excludedResources.Has(resource.GetKind()) {
+	if excludeResources.Has(resource.GetKind()) {
 		return true
 	}
 

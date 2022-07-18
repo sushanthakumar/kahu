@@ -100,10 +100,10 @@ func getHooksSpec(hookSpecs []kahuv1.ResourceHookSpec) ([]ResourceHook, error) {
 			Name:         spec.Name,
 			Pre:          spec.PreHooks,
 			Post:         spec.PostHooks,
-			namespacesIn: spec.IncludedNamespaces,
-			namespacesEx: spec.ExcludedNamespaces,
-			resourcesIn:  spec.IncludedResources,
-			resourcesEx:  spec.ExcludedResources,
+			namespacesIn: spec.IncludeNamespaces,
+			namespacesEx: spec.ExcludeNamespaces,
+			resourcesIn:  spec.IncludeResources,
+			resourcesEx:  spec.ExcludeResources,
 		}
 		if spec.LabelSelector != nil {
 			labelSelector, err := metav1.LabelSelectorAsSelector(spec.LabelSelector)
@@ -225,8 +225,7 @@ func (h *Hooks) executePodCommand(pod *v1.Pod, namespace, name, hookName string,
 			return err
 		}
 	} else if err := ensureContainerExists(pod, localHook.Container); err != nil {
-		// no container skipping hook execution
-		return nil
+		return err
 	}
 
 	if len(localHook.Command) == 0 {
@@ -308,6 +307,7 @@ func ensureContainerExists(pod *v1.Pod, container string) error {
 			return nil
 		}
 	}
+	log.Infof("container %s not in available", container)
 	return errors.New("no such container")
 }
 
