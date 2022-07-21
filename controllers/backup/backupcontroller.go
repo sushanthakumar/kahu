@@ -48,6 +48,7 @@ import (
 	kahulister "github.com/soda-cdm/kahu/client/listers/kahu/v1"
 	"github.com/soda-cdm/kahu/controllers"
 	"github.com/soda-cdm/kahu/discovery"
+	"github.com/soda-cdm/kahu/hooks"
 	"github.com/soda-cdm/kahu/utils"
 )
 
@@ -65,6 +66,7 @@ type controller struct {
 	providerLister       kahulister.ProviderLister
 	volumeBackupClient   kahuv1client.VolumeBackupContentInterface
 	volumeBackupLister   kahulister.VolumeBackupContentLister
+	hookExecutor         hooks.Hooks
 }
 
 func NewController(
@@ -74,7 +76,8 @@ func NewController(
 	dynamicClient dynamic.Interface,
 	informer kahuinformer.SharedInformerFactory,
 	eventBroadcaster record.EventBroadcaster,
-	discoveryHelper discovery.DiscoveryHelper) (controllers.Controller, error) {
+	discoveryHelper discovery.DiscoveryHelper,
+	hookExecutor hooks.Hooks) (controllers.Controller, error) {
 
 	logger := log.WithField("controller", controllerName)
 	backupController := &controller{
@@ -89,6 +92,7 @@ func NewController(
 		providerLister:       informer.Kahu().V1().Providers().Lister(),
 		volumeBackupClient:   kahuClient.KahuV1().VolumeBackupContents(),
 		volumeBackupLister:   informer.Kahu().V1().VolumeBackupContents().Lister(),
+		hookExecutor:         hookExecutor,
 	}
 
 	// construct controller interface to process worker queue
@@ -234,7 +238,30 @@ func (ctrl *controller) syncVolumeBackup(
 		}
 
 		// add volume backup content in resource backup list
-		return ctrl.syncResourceBackup(backup)
+		err := ctrl.syncResourceBackup(backup)
+		if err != nil {
+			return err
+		}
+
+		backup, err = ctrl.updateBackupStatusWithEvent(backup, kahuapi.BackupStatus{
+			Stage: kahuapi.BackupStagePostHook,
+		}, v1.EventTypeNormal, "Preparing to execute post hook",
+			"Backup resources success")
+		if err != nil {
+			return err
+		}
+		// Execute post hooks
+		if !metav1.HasAnnotation(backup.ObjectMeta, annBackupPostHookStarted) {
+			metav1.SetMetaDataAnnotation(&backup.ObjectMeta, annBackupPostHookStarted, "true")
+			err = ctrl.hookExecutor.ExecuteHook(backup, hooks.PostHookPhase)
+			if err != nil {
+				ctrl.logger.Errorf("failed to Execute post hooks: %s", err.Error())
+				backup.Status.State = kahuapi.BackupStateFailed
+				backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
+				ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
+			}
+		}
+		return err
 	}
 
 	// preprocess backup spec and try to get all backup resources
@@ -254,11 +281,31 @@ func (ctrl *controller) syncVolumeBackup(
 	}
 
 	backup, err = ctrl.updateBackupStatusWithEvent(backup, kahuapi.BackupStatus{
-		Stage: kahuapi.BackupStageVolumes,
+		Stage: kahuapi.BackupStagePreHook,
 	}, v1.EventTypeNormal, string(kahuapi.BackupStageInitial),
 		"Backup validation success")
 	if err != nil {
 		return err
+	}
+
+	// Execute pre hooks
+	if !metav1.HasAnnotation(backup.ObjectMeta, annBackupPreHookStarted) {
+		metav1.SetMetaDataAnnotation(&backup.ObjectMeta, annBackupPreHookStarted, "true")
+		err = ctrl.hookExecutor.ExecuteHook(backup, hooks.PreHookPhase)
+		if err != nil {
+			backup.Status.State = kahuapi.BackupStateFailed
+			backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
+			ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
+			return err
+		}
+
+		backup, err = ctrl.updateBackupStatusWithEvent(backup, kahuapi.BackupStatus{
+			Stage: kahuapi.BackupStageVolumes,
+		}, v1.EventTypeNormal, string(kahuapi.BackupStagePreHook),
+			"Pre-hook execution success")
+		if err != nil {
+			return err
+		}
 	}
 
 	err = ctrl.processVolumeBackup(backup, backupContext)
@@ -270,6 +317,10 @@ func (ctrl *controller) syncVolumeBackup(
 		State: kahuapi.BackupStateProcessing,
 	}, v1.EventTypeNormal, "VolumeBackupScheduled",
 		"Volume backup Scheduled")
+	if err != nil {
+		return err
+	}
+
 	return err
 }
 

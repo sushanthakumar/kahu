@@ -257,6 +257,10 @@ func (in *BackupStatus) DeepCopyInto(out *BackupStatus) {
 		in, out := &in.StartTimestamp, &out.StartTimestamp
 		*out = (*in).DeepCopy()
 	}
+	if in.CompletionTimestamp != nil {
+		in, out := &in.CompletionTimestamp, &out.CompletionTimestamp
+		*out = (*in).DeepCopy()
+	}
 	return
 }
 
