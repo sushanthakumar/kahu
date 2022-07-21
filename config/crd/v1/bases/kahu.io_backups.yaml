@@ -19,7 +19,7 @@ spec:
     - jsonPath: .spec.metadataLocation
       name: MetadataLocation
       type: string
-    - jsonPath: .spec.includeProviders
+    - jsonPath: .spec.volumeBackupLocations
       name: VolumeBackupLocations
       type: string
     - jsonPath: .status.stage
@@ -30,6 +30,9 @@ spec:
       type: string
     - jsonPath: .status.startTimestamp
       name: StartTimestamp
+      type: string
+    - jsonPath: .status.completionTimestamp
+      name: CompletionTimestamp
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
@@ -62,12 +65,6 @@ spec:
                 type: boolean
               excludeNamespaces:
                 description: ExcludeNamespaces is a list of all namespaces excluded
-                  for backup
-                items:
-                  type: string
-                type: array
-              excludeProviders:
-                description: ExcludeProviders is a list of all providers excluded
                   for backup
                 items:
                   type: string
@@ -274,12 +271,6 @@ spec:
                 items:
                   type: string
                 type: array
-              includeProviders:
-                description: IncludeProviders is a list of all provideres included
-                  for backup. If empty, all provideres are included
-                items:
-                  type: string
-                type: array
               includeResources:
                 description: IncludeResources is a list of all resources included
                   for backup. If empty, all resources are included
@@ -350,16 +341,31 @@ spec:
                   reclaimPolicyRetain:
                     type: string
                 type: object
+              volumeBackupLocations:
+                description: VolumeBackupLocations is a list of all volume providers
+                  included for backup. If empty, all providers are included
+                items:
+                  type: string
+                type: array
             required:
             - metadataLocation
             type: object
           status:
             properties:
-              conditions:
+              completionTimestamp:
+                description: CompletionTimestamp is defines time when backup completed
+                format: date-time
+                nullable: true
+                type: string
+              lastBackup:
+                description: LastBackup defines the last backup time
+                format: date-time
+                type: string
+              resources:
                 description: Conditions tells the current state of a resource that
                   is backing up
                 items:
-                  description: BackupCondition indicates the current state of a resource
+                  description: BackupResource indicates the current state of a resource
                     that is backing up
                   properties:
                     apiVersion:
@@ -374,6 +380,9 @@ spec:
                         the client submits requests to. Cannot be updated. In CamelCase.
                         More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
                       type: string
+                    namespace:
+                      description: Namespace of the backup resource
+                      type: string
                     resourceName:
                       description: ResourceName is a one of the item of backup that
                         is backing up
@@ -383,10 +392,6 @@ spec:
                       type: string
                   type: object
                 type: array
-              lastBackup:
-                description: LastBackup defines the last backup time
-                format: date-time
-                type: string
               stage:
                 description: Stage is the current phase of the backup
                 enum:

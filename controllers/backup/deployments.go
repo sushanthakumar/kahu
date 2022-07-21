@@ -19,31 +19,24 @@ package backup
 import (
 	"context"
 
+	"github.com/soda-cdm/kahu/utils"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/kubernetes"
-
-	"github.com/soda-cdm/kahu/utils"
 
 	metaservice "github.com/soda-cdm/kahu/providerframework/metaservice/lib/go"
 )
 
-func (c *controller) GetDeploymentAndBackup(name, namespace string,
+func (ctrl *controller) GetDeploymentAndBackup(name, namespace string,
 	backupClient metaservice.MetaService_BackupClient) error {
-	k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-	if err != nil {
-		c.logger.Errorf("Unable to get k8sclient %s", err)
-		return err
-	}
-
-	deployment, err := k8sClient.AppsV1().Deployments(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	deployment, err := ctrl.kubeClient.AppsV1().
+		Deployments(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
 
-	err = c.backupSend(deployment, deployment.Name, backupClient)
+	err = ctrl.backupSend(deployment, deployment.Name, backupClient)
 	if err != nil {
 		return err
 	}
@@ -51,25 +44,19 @@ func (c *controller) GetDeploymentAndBackup(name, namespace string,
 
 }
 
-func (c *controller) deploymentBackup(namespace string,
+func (ctrl *controller) deploymentBackup(namespace string,
 	backup *PrepareBackup, backupClient metaservice.MetaService_BackupClient) error {
-
-	c.logger.Infoln("starting collecting deployments")
-	k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-	if err != nil {
-		c.logger.Errorf("Unable to get k8sclient %s", err)
-		return err
-	}
-
+	ctrl.logger.Infoln("Starting collecting deployments")
 	var labelSelectors map[string]string
 	if backup.Spec.Label != nil {
 		labelSelectors = backup.Spec.Label.MatchLabels
 	}
 
 	selectors := labels.Set(labelSelectors).String()
-	dList, err := k8sClient.AppsV1().Deployments(namespace).List(context.TODO(), metav1.ListOptions{
-		LabelSelector: selectors,
-	})
+	dList, err := ctrl.kubeClient.AppsV1().Deployments(namespace).
+		List(context.TODO(), metav1.ListOptions{
+			LabelSelector: selectors,
+		})
 	if err != nil {
 		return err
 	}
@@ -84,19 +71,19 @@ func (c *controller) deploymentBackup(namespace string,
 	for _, deployment := range dList.Items {
 		if utils.Contains(deploymentAllList, deployment.Name) {
 			// backup the deployment yaml
-			err = c.GetDeploymentAndBackup(deployment.Name, deployment.Namespace, backupClient)
+			err = ctrl.GetDeploymentAndBackup(deployment.Name, deployment.Namespace, backupClient)
 			if err != nil {
 				return err
 			}
 
 			// backup the volumespec releted object like, configmaps, secret, pvc and sc
-			err = c.GetVolumesSpec(deployment.Spec.Template.Spec, deployment.Namespace, backupClient)
+			err = ctrl.GetVolumesSpec(deployment.Spec.Template.Spec, deployment.Namespace, backupClient)
 			if err != nil {
 				return err
 			}
 
 			// get service account relared objects
-			err = c.GetServiceAccountSpec(deployment.Spec.Template.Spec, deployment.Namespace, backupClient)
+			err = ctrl.GetServiceAccountSpec(deployment.Spec.Template.Spec, deployment.Namespace, backupClient)
 			if err != nil {
 				return err
 			}
@@ -104,7 +91,7 @@ func (c *controller) deploymentBackup(namespace string,
 			// get services based on selectors
 			var selectorList []map[string]string
 			selectorList = append(selectorList, deployment.Spec.Selector.MatchLabels)
-			err = c.GetServiceForPod(deployment.Namespace, selectorList, backupClient, k8sClient)
+			err = ctrl.GetServiceForPod(deployment.Namespace, selectorList, backupClient, ctrl.kubeClient)
 			if err != nil {
 				return err
 			}
@@ -113,20 +100,15 @@ func (c *controller) deploymentBackup(namespace string,
 	return nil
 }
 
-func (c *controller) GetDaemonSetAndBackup(name, namespace string,
+func (ctrl *controller) GetDaemonSetAndBackup(name, namespace string,
 	backupClient metaservice.MetaService_BackupClient) error {
-	k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-	if err != nil {
-		c.logger.Errorf("Unable to get k8sclient %s", err)
-		return err
-	}
-
-	daemonset, err := k8sClient.AppsV1().DaemonSets(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	daemonset, err := ctrl.kubeClient.AppsV1().
+		DaemonSets(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
 
-	err = c.backupSend(daemonset, daemonset.Name, backupClient)
+	err = ctrl.backupSend(daemonset, daemonset.Name, backupClient)
 	if err != nil {
 		return err
 	}
@@ -134,23 +116,16 @@ func (c *controller) GetDaemonSetAndBackup(name, namespace string,
 
 }
 
-func (c *controller) daemonSetBackup(namespace string,
+func (ctrl *controller) daemonSetBackup(namespace string,
 	backup *PrepareBackup, backupClient metaservice.MetaService_BackupClient) error {
-
-	c.logger.Infoln("starting collecting daemonset")
-	k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-	if err != nil {
-		c.logger.Errorf("Unable to get k8sclient %s", err)
-		return err
-	}
-
+	ctrl.logger.Infoln("Starting collecting daemonset")
 	var labelSelectors map[string]string
 	if backup.Spec.Label != nil {
 		labelSelectors = backup.Spec.Label.MatchLabels
 	}
 	selectors := labels.Set(labelSelectors).String()
 
-	dList, err := k8sClient.AppsV1().DaemonSets(namespace).List(context.TODO(), metav1.ListOptions{
+	dList, err := ctrl.kubeClient.AppsV1().DaemonSets(namespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: selectors,
 	})
 	if err != nil {
@@ -167,19 +142,19 @@ func (c *controller) daemonSetBackup(namespace string,
 	for _, daemonset := range dList.Items {
 		if utils.Contains(daemonsetAllList, daemonset.Name) {
 			// backup the daemonset yaml
-			err = c.GetDaemonSetAndBackup(daemonset.Name, daemonset.Namespace, backupClient)
+			err = ctrl.GetDaemonSetAndBackup(daemonset.Name, daemonset.Namespace, backupClient)
 			if err != nil {
 				return err
 			}
 
 			// backup the volumespec releted object like, configmaps, secret, pvc and sc
-			err = c.GetVolumesSpec(daemonset.Spec.Template.Spec, daemonset.Namespace, backupClient)
+			err = ctrl.GetVolumesSpec(daemonset.Spec.Template.Spec, daemonset.Namespace, backupClient)
 			if err != nil {
 				return err
 			}
 
 			// get service account relared objects
-			err = c.GetServiceAccountSpec(daemonset.Spec.Template.Spec, daemonset.Namespace, backupClient)
+			err = ctrl.GetServiceAccountSpec(daemonset.Spec.Template.Spec, daemonset.Namespace, backupClient)
 			if err != nil {
 				return err
 			}
@@ -187,7 +162,7 @@ func (c *controller) daemonSetBackup(namespace string,
 			// get services based on selectors
 			var selectorList []map[string]string
 			selectorList = append(selectorList, daemonset.Spec.Selector.MatchLabels)
-			err = c.GetServiceForPod(daemonset.Namespace, selectorList, backupClient, k8sClient)
+			err = ctrl.GetServiceForPod(daemonset.Namespace, selectorList, backupClient, ctrl.kubeClient)
 			if err != nil {
 				return err
 			}
@@ -196,45 +171,28 @@ func (c *controller) daemonSetBackup(namespace string,
 	return nil
 }
 
-func (c *controller) GetServiceAccount(namespace, name string) (*corev1.ServiceAccount, error) {
-
-	k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-	if err != nil {
-		c.logger.Errorf("Unable to get k8sclient %s", err)
-		return nil, err
-	}
-
-	sa, err := k8sClient.CoreV1().ServiceAccounts(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+func (ctrl *controller) GetServiceAccount(namespace, name string) (*corev1.ServiceAccount, error) {
+	sa, err := ctrl.kubeClient.CoreV1().
+		ServiceAccounts(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
 	return sa, err
 }
 
-func (c *controller) GetConfigMap(namespace, name string) (*corev1.ConfigMap, error) {
-
-	k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-	if err != nil {
-		c.logger.Errorf("Unable to get k8sclient %s", err)
-		return nil, err
-	}
-
-	configmap, err := k8sClient.CoreV1().ConfigMaps(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+func (ctrl *controller) GetConfigMap(namespace, name string) (*corev1.ConfigMap, error) {
+	configmap, err := ctrl.kubeClient.CoreV1().
+		ConfigMaps(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
 	return configmap, err
 }
 
-func (c *controller) ListNamespaces(backup *PrepareBackup) ([]string, error) {
-	k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-	if err != nil {
-		c.logger.Errorf("Unable to get k8sclient %s", err)
-		return nil, err
-	}
-
+func (ctrl *controller) ListNamespaces(backup *PrepareBackup) ([]string, error) {
 	var namespaceList []string
-	namespaces, err := k8sClient.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
+	namespaces, err := ctrl.kubeClient.CoreV1().
+		Namespaces().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return namespaceList, err
 	}
@@ -245,23 +203,17 @@ func (c *controller) ListNamespaces(backup *PrepareBackup) ([]string, error) {
 	return namespaceList, nil
 }
 
-func (c *controller) getPersistentVolumeClaims(namespace string, backup *PrepareBackup,
+func (ctrl *controller) getPersistentVolumeClaims(namespace string, backup *PrepareBackup,
 	backupClient metaservice.MetaService_BackupClient) error {
-
-	c.logger.Infoln("starting collecting persistentvolumeclaims")
-	k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-	if err != nil {
-		c.logger.Errorf("Unable to get k8sclient %s", err)
-		return err
-	}
-
+	ctrl.logger.Infoln("Starting collecting persistentvolumeclaims")
 	var labelSelectors map[string]string
 	if backup.Spec.Label != nil {
 		labelSelectors = backup.Spec.Label.MatchLabels
 	}
 
 	selectors := labels.Set(labelSelectors).String()
-	allPVC, err := k8sClient.CoreV1().PersistentVolumeClaims(namespace).List(context.TODO(), metav1.ListOptions{
+	allPVC, err := ctrl.kubeClient.CoreV1().
+		PersistentVolumeClaims(namespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: selectors,
 	})
 	if err != nil {
@@ -273,16 +225,16 @@ func (c *controller) getPersistentVolumeClaims(namespace string, backup *Prepare
 		allPVCList = append(allPVCList, pvc.Name)
 	}
 
-	allPVCList = utils.FindMatchedStrings(utils.Pvc, allPVCList, backup.Spec.IncludeResources,
+	allPVCList = utils.FindMatchedStrings(utils.PVC, allPVCList, backup.Spec.IncludeResources,
 		backup.Spec.ExcludeResources)
 
 	for _, item := range allPVC.Items {
 		if utils.Contains(allPVCList, item.Name) {
-			pvcData, err := c.GetPVC(namespace, item.Name)
+			pvcData, err := ctrl.GetPVC(namespace, item.Name)
 			if err != nil {
 				return err
 			}
-			err = c.backupSend(pvcData, pvcData.Name, backupClient)
+			err = ctrl.backupSend(pvcData, pvcData.Name, backupClient)
 			if err != nil {
 				return err
 			}
@@ -292,29 +244,18 @@ func (c *controller) getPersistentVolumeClaims(namespace string, backup *Prepare
 	return nil
 }
 
-func (c *controller) GetPVC(namespace, name string) (*corev1.PersistentVolumeClaim, error) {
-
-	k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-	if err != nil {
-		c.logger.Errorf("Unable to get k8sclient %s", err)
-		return nil, err
-	}
-
-	pvc, err := k8sClient.CoreV1().PersistentVolumeClaims(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+func (ctrl *controller) GetPVC(namespace, name string) (*corev1.PersistentVolumeClaim, error) {
+	pvc, err := ctrl.kubeClient.CoreV1().
+		PersistentVolumeClaims(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
 	return pvc, err
 }
 
-func (c *controller) getStorageClass(backup *PrepareBackup,
+func (ctrl *controller) getStorageClass(backup *PrepareBackup,
 	backupClient metaservice.MetaService_BackupClient) error {
-	c.logger.Infoln("starting collecting storageclass")
-	k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-	if err != nil {
-		c.logger.Errorf("Unable to get k8sclient %s", err)
-		return err
-	}
+	ctrl.logger.Infoln("Starting collecting storageclass")
 
 	var labelSelectors map[string]string
 	if backup.Spec.Label != nil {
@@ -322,7 +263,7 @@ func (c *controller) getStorageClass(backup *PrepareBackup,
 	}
 
 	selectors := labels.Set(labelSelectors).String()
-	allSC, err := k8sClient.StorageV1().StorageClasses().List(context.TODO(), metav1.ListOptions{
+	allSC, err := ctrl.kubeClient.StorageV1().StorageClasses().List(context.TODO(), metav1.ListOptions{
 		LabelSelector: selectors,
 	})
 	if err != nil {
@@ -339,8 +280,8 @@ func (c *controller) getStorageClass(backup *PrepareBackup,
 
 	for _, item := range allSC.Items {
 		if utils.Contains(allSCList, item.Name) {
-			scData, err := c.GetSC(item.Name)
-			err = c.backupSend(scData, scData.Name, backupClient)
+			scData, err := ctrl.GetSC(item.Name)
+			err = ctrl.backupSend(scData, scData.Name, backupClient)
 			if err != nil {
 				return err
 			}
@@ -349,15 +290,8 @@ func (c *controller) getStorageClass(backup *PrepareBackup,
 	return nil
 }
 
-func (c *controller) GetSC(name string) (*storagev1.StorageClass, error) {
-
-	k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-	if err != nil {
-		c.logger.Errorf("Unable to get k8sclient %s", err)
-		return nil, err
-	}
-
-	sc, err := k8sClient.StorageV1().StorageClasses().Get(context.TODO(), name, metav1.GetOptions{})
+func (ctrl *controller) GetSC(name string) (*storagev1.StorageClass, error) {
+	sc, err := ctrl.kubeClient.StorageV1().StorageClasses().Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}

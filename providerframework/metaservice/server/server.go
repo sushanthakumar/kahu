@@ -89,9 +89,7 @@ func (server *metaServer) Backup(service pb.MetaService_BackupServer) error {
 		resource := backupRequest.GetBackupResource().GetResource()
 		log.Infof("Resource Info %+v", resource)
 		resourceData := backupRequest.GetBackupResource().GetData()
-		filePath := utils.ResourceToFile(backupHandle, resource)
-		log.Infof("filePath %+v", filePath)
-		err = archiveHandler.WriteFile(filePath, resourceData)
+		err = archiveHandler.WriteFile(utils.ResourceToFile(backupHandle, resource), resourceData)
 		if err != nil {
 			log.Errorf("failed to write file. %s", err)
 			return status.Errorf(codes.Internal, "failed to write file. %s", err)

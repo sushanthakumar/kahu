@@ -18,12 +18,9 @@ package restore
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"reflect"
 
-	log "github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,12 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kahuapi "github.com/soda-cdm/kahu/apis/kahu/v1"
-	metaservice "github.com/soda-cdm/kahu/providerframework/metaservice/lib/go"
-	"github.com/soda-cdm/kahu/utils"
-)
-
-const (
-	crdName = "CustomResourceDefinition"
 )
 
 var (
@@ -53,52 +44,12 @@ type backupInfo struct {
 	backupProvider *kahuapi.Provider
 }
 
-func (ctx *restoreContext) processMetadataRestore(restore *kahuapi.Restore) error {
-	// fetch backup info
-	backupInfo, err := ctx.fetchBackupInfo(restore)
-	if err != nil {
-		return err
-	}
-
-	// construct backup identifier
-	backupIdentifier, err := utils.GetBackupIdentifier(backupInfo.backup,
-		backupInfo.backupLocation,
-		backupInfo.backupProvider)
-	if err != nil {
-		return err
-	}
-
-	// fetch backup content and cache them
-	err = ctx.fetchBackupContent(backupInfo.backupProvider, backupIdentifier, restore)
-	if err != nil {
-		restore.Status.State = kahuapi.RestoreStateFailed
-		restore.Status.FailureReason = fmt.Sprintf("Failed to get backup content. %s",
-			err)
-		restore, err = ctx.updateRestoreStatus(restore)
-		return err
-	}
-
-	// filter resources from cache
-	err = ctx.filter.handle(restore)
-	if err != nil {
-		restore.Status.State = kahuapi.RestoreStateFailed
-		errMsg := fmt.Sprintf("Failed to filter resources. %s", err)
-		restore.Status.FailureReason = errMsg
-		restore, err = ctx.updateRestoreStatus(restore)
-		return err
-	}
-
-	// add mutation
-	err = ctx.mutator.handle(restore)
-	if err != nil {
-		restore.Status.State = kahuapi.RestoreStateFailed
-		restore.Status.FailureReason = fmt.Sprintf("Failed to mutate resources. %s", err)
-		restore, err = ctx.updateRestoreStatus(restore)
-		return err
-	}
+func (ctx *restoreContext) syncMetadataRestore(restore *kahuapi.Restore) error {
+	// metadata restore should be last step for restore
+	ctx.logger.Infof("Restore in %s phase", kahuapi.RestoreStageResources)
 
 	// process CRD resource first
-	err = ctx.applyCRD()
+	err := ctx.applyCRD()
 	if err != nil {
 		restore.Status.State = kahuapi.RestoreStateFailed
 		restore.Status.FailureReason = fmt.Sprintf("Failed to apply CRD resources. %s", err)
@@ -117,186 +68,10 @@ func (ctx *restoreContext) processMetadataRestore(restore *kahuapi.Restore) erro
 
 	restore.Status.Stage = kahuapi.RestoreStageFinished
 	restore.Status.State = kahuapi.RestoreStateCompleted
-	restore.Status.State = kahuapi.RestoreStateCompleted
 	time := metav1.Now()
 	restore.Status.CompletionTimestamp = &time
 	restore, err = ctx.updateRestoreStatus(restore)
 	return err
-}
-
-func (ctx *restoreContext) fetchBackup(restore *kahuapi.Restore) (*kahuapi.Backup, error) {
-	// fetch backup
-	backupName := restore.Spec.BackupName
-	backup, err := ctx.backupLister.Get(backupName)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			ctx.logger.Errorf("Backup(%s) do not exist", backupName)
-			return nil, err
-		}
-		ctx.logger.Errorf("Failed to get backup. %s", err)
-		return nil, err
-	}
-
-	return backup, err
-}
-
-func (ctx *restoreContext) fetchBackupLocation(locationName string,
-	restore *kahuapi.Restore) (*kahuapi.BackupLocation, error) {
-	// fetch backup location
-	backupLocation, err := ctx.backupLocationLister.Get(locationName)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			ctx.logger.Errorf("Backup location(%s) do not exist", locationName)
-			return nil, err
-		}
-		ctx.logger.Errorf("Failed to get backup location. %s", err)
-		return nil, err
-	}
-
-	return backupLocation, err
-}
-
-func (ctx *restoreContext) fetchProvider(providerName string,
-	restore *kahuapi.Restore) (*kahuapi.Provider, error) {
-	// fetch provider
-	provider, err := ctx.providerLister.Get(providerName)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			ctx.logger.Errorf("Metadata Provider(%s) do not exist", providerName)
-			return nil, err
-		}
-		ctx.logger.Errorf("Failed to get metadata provider. %s", err)
-		return nil, err
-	}
-
-	return provider, nil
-}
-
-func (ctx *restoreContext) fetchBackupInfo(restore *kahuapi.Restore) (*backupInfo, error) {
-	backup, err := ctx.fetchBackup(restore)
-	if err != nil {
-		ctx.logger.Errorf("Failed to get backup information for backup(%s). %s",
-			restore.Spec.BackupName, err)
-		return nil, err
-	}
-
-	backupLocation, err := ctx.fetchBackupLocation(backup.Spec.MetadataLocation, restore)
-	if err != nil {
-		ctx.logger.Errorf("Failed to get backup location information for %s. %s",
-			backup.Spec.MetadataLocation, err)
-		return nil, err
-	}
-
-	provider, err := ctx.fetchProvider(backupLocation.Spec.ProviderName, restore)
-	if err != nil {
-		ctx.logger.Errorf("Failed to get backup location provider for %s. %s",
-			backupLocation.Spec.ProviderName, err)
-		return nil, err
-	}
-
-	return &backupInfo{
-		backup:         backup,
-		backupLocation: backupLocation,
-		backupProvider: provider,
-	}, nil
-}
-
-func (ctx *restoreContext) fetchMetaServiceClient(backupProvider *kahuapi.Provider,
-	restore *kahuapi.Restore) (metaservice.MetaServiceClient, error) {
-	if backupProvider.Spec.Type != kahuapi.ProviderTypeMetadata {
-		return nil, fmt.Errorf("invalid metadata provider type (%s)",
-			backupProvider.Spec.Type)
-	}
-
-	// fetch service name
-	providerService, exist := backupProvider.Annotations[utils.BackupLocationServiceAnnotation]
-	if !exist {
-		return nil, fmt.Errorf("failed to get metadata provider(%s) service info",
-			backupProvider.Name)
-	}
-
-	metaServiceClient, err := metaservice.GetMetaServiceClient(providerService)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get metadata service client(%s)",
-			providerService)
-	}
-
-	return metaServiceClient, nil
-}
-
-func (ctx *restoreContext) fetchBackupContent(backupProvider *kahuapi.Provider,
-	backupIdentifier *metaservice.BackupIdentifier,
-	restore *kahuapi.Restore) error {
-	// fetch meta service client
-	metaServiceClient, err := ctx.fetchMetaServiceClient(backupProvider, restore)
-	if err != nil {
-		ctx.logger.Errorf("Error fetching meta service client. %s", err)
-		return err
-	}
-
-	// fetch metadata backup file
-	restoreClient, err := metaServiceClient.Restore(context.TODO(), &metaservice.RestoreRequest{
-		Id: backupIdentifier,
-	})
-	if err != nil {
-		ctx.logger.Errorf("Error fetching meta service restore client. %s", err)
-		return fmt.Errorf("error fetching meta service restore client. %s", err)
-	}
-
-	for {
-		res, err := restoreClient.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Errorf("Failed fetching data. %s", err)
-			break
-		}
-
-		obj := new(unstructured.Unstructured)
-		err = json.Unmarshal(res.GetBackupResource().GetData(), obj)
-		if err != nil {
-			log.Errorf("Failed to unmarshal on backed up data %s", err)
-			continue
-		}
-
-		ctx.logger.Infof("Received %s/%s from meta service",
-			obj.GroupVersionKind(),
-			obj.GetName())
-		if ctx.excludeResource(obj) {
-			ctx.logger.Infof("Excluding %s/%s from processing",
-				obj.GroupVersionKind(),
-				obj.GetName())
-			continue
-		}
-
-		err = ctx.backupObjectIndexer.Add(obj)
-		if err != nil {
-			ctx.logger.Errorf("Unable to add resource %s/%s in restore cache. %s",
-				obj.GroupVersionKind(),
-				obj.GetName(),
-				err)
-			return err
-		}
-	}
-	restoreClient.CloseSend()
-
-	return nil
-}
-
-func (ctx *restoreContext) excludeResource(resource *unstructured.Unstructured) bool {
-	if excludeResources.Has(resource.GetKind()) {
-		return true
-	}
-
-	switch resource.GetKind() {
-	case "Service":
-		if resource.GetName() == "kubernetes" {
-			return true
-		}
-	}
-
-	return false
 }
 
 func (ctx *restoreContext) applyCRD() error {
@@ -361,7 +136,7 @@ func (ctx *restoreContext) applyResource(resource *unstructured.Unstructured) er
 	gvk := resource.GroupVersionKind()
 	gvr, _, err := ctx.discoveryHelper.ByGroupVersionKind(gvk)
 	if err != nil {
-		ctx.logger.Errorf("unable to fetch GroupVersionResource for %s", gvk)
+		ctx.logger.Errorf("unable to fetch GroupVersionResource for %s : %x", gvk.String(), []byte(gvk.String()))
 		return err
 	}
 

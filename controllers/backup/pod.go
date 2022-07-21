@@ -23,36 +23,23 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/soda-cdm/kahu/hooks"
-	"github.com/soda-cdm/kahu/utils"
 	metaservice "github.com/soda-cdm/kahu/providerframework/metaservice/lib/go"
+	"github.com/soda-cdm/kahu/utils"
 )
 
-func (c *controller) GetPodAndBackup(name, namespace string,
+func (ctrl *controller) GetPodAndBackup(name, namespace string,
 	backupClient metaservice.MetaService_BackupClient) error {
-	k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-	if err != nil {
-		c.logger.Errorf("Unable to get k8sclient %s", err)
-		return err
-	}
-
-	pod, err := k8sClient.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	pod, err := ctrl.kubeClient.CoreV1().Pods(namespace).Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
-	return c.backupSend(pod, pod.Name, backupClient)
+	return ctrl.backupSend(pod, pod.Name, backupClient)
 
 }
 
-func (c *controller) podBackup(namespace string,
+func (ctrl *controller) podBackup(namespace string,
 	backup *PrepareBackup, backupClient metaservice.MetaService_BackupClient) error {
-
-	c.logger.Infoln("starting collecting pods")
-	k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-	if err != nil {
-		c.logger.Errorf("Unable to get k8sclient %s", err)
-		return err
-	}
+	ctrl.logger.Infoln("Starting collecting pods")
 
 	var podLabelList []map[string]string
 	var labelSelectors map[string]string
@@ -61,7 +48,7 @@ func (c *controller) podBackup(namespace string,
 	}
 
 	selectors := labels.Set(labelSelectors).String()
-	podList, err := k8sClient.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
+	podList, err := ctrl.kubeClient.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
 		LabelSelector: selectors,
 	})
 	if err != nil {
@@ -79,68 +66,39 @@ func (c *controller) podBackup(namespace string,
 	for _, pod := range podList.Items {
 		if utils.Contains(podAllList, pod.Name) {
 			// Run pre hooks for the pod
-			k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-			if err != nil {
-				c.logger.Errorf("Unable to get k8s client %s", err)
-				return err
-			}
-
-			pod_obj, err := k8sClient.CoreV1().Pods(pod.Namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
-			if err != nil {
-				c.logger.Errorf("Unable to get pod obj for name %s", err)
-				return err
-			}
-
-			err = c.execHook.ExecuteHook(
-				pod_obj,
-				hooks.PreHookPhase,
-			)
-			if err != nil {
-				c.logger.Errorf("pre hooks failed with error, %s", err)
-				return err
-			}
-			
 			// backup the deployment yaml
-			err = c.GetPodAndBackup(pod.Name, pod.Namespace, backupClient)
+			err = ctrl.GetPodAndBackup(pod.Name, pod.Namespace, backupClient)
 			if err != nil {
 				return err
 			}
 
 			// backup the volumespec releted object like, configmaps, secret, pvc and sc
-			err = c.GetVolumesSpec(pod.Spec, pod.Namespace, backupClient)
+			err = ctrl.GetVolumesSpec(pod.Spec, pod.Namespace, backupClient)
 			if err != nil {
 				return err
 			}
 
 			// get service account relared objects
-			err = c.GetServiceAccountSpec(pod.Spec, pod.Namespace, backupClient)
+			err = ctrl.GetServiceAccountSpec(pod.Spec, pod.Namespace, backupClient)
 			if err != nil {
 				return err
 			}
-			// Run post hooks for the pod
-			err = c.execHook.ExecuteHook(
-				pod_obj,
-				hooks.PostHookPhase,
-			)
-			if err != nil {
-				c.logger.Errorf("post hooks failed with error, %s", err)
-				return err
-			}
+
 			// append the lables of pods to list
 			podLabelList = append(podLabelList, pod.Labels)
 		}
 	}
 
 	// get services used by pod
-	err = c.GetServiceForPod(namespace, podLabelList, backupClient, k8sClient)
+	err = ctrl.GetServiceForPod(namespace, podLabelList, backupClient, ctrl.kubeClient)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (c *controller) GetServiceForPod(namespace string, podLabelList []map[string]string,
-	backupClient metaservice.MetaService_BackupClient, k8sClinet *kubernetes.Clientset) error {
+func (ctrl *controller) GetServiceForPod(namespace string, podLabelList []map[string]string,
+	backupClient metaservice.MetaService_BackupClient, k8sClinet kubernetes.Interface) error {
 
 	allServices, err := k8sClinet.CoreV1().Services(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
@@ -153,7 +111,7 @@ func (c *controller) GetServiceForPod(namespace string, podLabelList []map[strin
 	}
 
 	for _, service := range allServices.Items {
-		serviceData, err := c.GetService(namespace, service.Name)
+		serviceData, err := ctrl.GetService(namespace, service.Name)
 		if err != nil {
 			return err
 		}
@@ -162,7 +120,7 @@ func (c *controller) GetServiceForPod(namespace string, podLabelList []map[strin
 			for _, labels := range podLabelList {
 				for lkey, lvalue := range labels {
 					if skey == lkey && svalue == lvalue {
-						err = c.backupSend(serviceData, serviceData.Name, backupClient)
+						err = ctrl.backupSend(serviceData, serviceData.Name, backupClient)
 						if err != nil {
 							return err
 						}

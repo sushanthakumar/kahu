@@ -18,7 +18,14 @@ package restore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/pkg/errors"
+	metaservice "github.com/soda-cdm/kahu/providerframework/metaservice/lib/go"
+	"github.com/soda-cdm/kahu/utils"
+	"google.golang.org/grpc"
+	"io"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"regexp"
 	"strings"
 
@@ -40,13 +47,6 @@ import (
 	kahulister "github.com/soda-cdm/kahu/client/listers/kahu/v1"
 	"github.com/soda-cdm/kahu/controllers"
 	"github.com/soda-cdm/kahu/discovery"
-)
-
-const (
-	controllerName                   = "RestoreController"
-	backupObjectNamespaceIndex       = "backupObject-namespace-index"
-	backupObjectResourceIndex        = "backupObject-resource-index"
-	backupObjectClusterResourceIndex = "backupObject-cluster-resource-index"
 )
 
 type controller struct {
@@ -84,7 +84,7 @@ func NewController(kubeClient kubernetes.Interface,
 	// construct controller interface to process worker queue
 	genericController, err := controllers.NewControllerBuilder(controllerName).
 		SetLogger(logger).
-		SetHandler(restoreController.handler).
+		SetHandler(restoreController.processQueue).
 		Build()
 	if err != nil {
 		return nil, err
@@ -94,6 +94,9 @@ func NewController(kubeClient kubernetes.Interface,
 	informer.Kahu().V1().Restores().Informer().AddEventHandler(
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: genericController.Enqueue,
+			UpdateFunc: func(oldObj, newObj interface{}) {
+				genericController.Enqueue(newObj)
+			},
 		},
 	)
 
@@ -132,7 +135,7 @@ func newRestoreContext(name string, ctrl *controller) *restoreContext {
 		discoveryHelper:      ctrl.discoveryHelper,
 		backupObjectIndexer:  backupObjectIndexer,
 		filter:               constructFilterHandler(backupObjectIndexer, logger),
-		mutator:              constructMutationHandler(backupObjectIndexer),
+		mutator:              constructMutationHandler(backupObjectIndexer, logger),
 	}
 }
 
@@ -175,9 +178,9 @@ func newBackupObjectIndexers() cache.Indexers {
 	}
 }
 
-func (ctrl *controller) handler(key string) error {
+func (ctrl *controller) processQueue(index string) error {
 	// get restore name
-	_, name, err := cache.SplitMetaNamespaceKey(key)
+	_, name, err := cache.SplitMetaNamespaceKey(index)
 	if err != nil {
 		ctrl.logger.Errorf("splitting key into namespace and name, error %s", err)
 		return err
@@ -193,13 +196,14 @@ func (ctrl *controller) handler(key string) error {
 		return err
 	}
 
-	//TODO(Amit Roushan): Add check to ignore terminating restore
-
 	// avoid polluting restore object
 	workCopyRestore := restore.DeepCopy()
-
-	ctrl.logger.WithField("restore", workCopyRestore.Name).Infof("Starting restore")
 	restoreCtx := newRestoreContext(workCopyRestore.Name, ctrl)
+
+	if restore.DeletionTimestamp != nil {
+		return restoreCtx.deleteRestore(workCopyRestore)
+	}
+
 	// update start time
 	if workCopyRestore.Status.StartTimestamp.IsZero() {
 		time := metav1.Now()
@@ -210,24 +214,29 @@ func (ctrl *controller) handler(key string) error {
 		}
 		workCopyRestore, err = restoreCtx.updateRestoreStatus(workCopyRestore)
 		if err != nil {
+			ctrl.logger.Errorf("Unable to update initial restore(%s) state", index)
 			return err
 		}
 	}
 
-	return restoreCtx.runRestore(workCopyRestore)
+	return restoreCtx.syncRestore(workCopyRestore)
 }
 
-// runRestore validates and perform restoration of resources
+func (ctx *restoreContext) deleteRestore(restore *kahuapi.Restore) error {
+	ctx.logger.Infof("Processing delete request for %s", restore.Name)
+	return nil
+}
+
+// syncRestore validates and perform restoration of resources
 // Restoration process are divided into multiple steps and each step are based on restore phases
 // Only restore object are passed on in Phases. The mechanism will help in failure/crash scenario
-func (ctx *restoreContext) runRestore(restore *kahuapi.Restore) error {
+func (ctx *restoreContext) syncRestore(restore *kahuapi.Restore) error {
 	var err error
 	ctx.logger.Infof("Processing restore for %s", restore.Name)
 	// handle restore with stages
 	switch restore.Status.Stage {
 	case "", kahuapi.RestoreStageInitial:
 		ctx.logger.Infof("Restore in %s phase", kahuapi.RestoreStageInitial)
-
 		// validate restore
 		ctx.validateRestore(restore)
 		if len(restore.Status.ValidationErrors) > 0 {
@@ -257,16 +266,52 @@ func (ctx *restoreContext) runRestore(restore *kahuapi.Restore) error {
 			ctx.logger.Errorf("Restore status update failed. %s", err)
 			return err
 		}
-		fallthrough
-	case kahuapi.RestoreStageResources:
-		ctx.logger.Infof("Restore in %s phase", kahuapi.RestoreStageResources)
-		// metadata restore should be last step for restore
-		return ctx.processMetadataRestore(restore)
-	default:
-		ctx.logger.Warnf("Ignoring restore stage %s", restore.Status.Stage)
 	}
 
-	return nil
+	// fetch backup info
+	backupInfo, err := ctx.fetchBackupInfo(restore)
+	if err != nil {
+		return err
+	}
+
+	// construct backup identifier
+	backupIdentifier, err := utils.GetBackupIdentifier(backupInfo.backup,
+		backupInfo.backupLocation,
+		backupInfo.backupProvider)
+	if err != nil {
+		return err
+	}
+
+	// fetch backup content and cache them
+	err = ctx.fetchBackupContent(backupInfo.backupProvider, backupIdentifier, restore)
+	if err != nil {
+		restore.Status.State = kahuapi.RestoreStateFailed
+		restore.Status.FailureReason = fmt.Sprintf("Failed to get backup content. %s",
+			err)
+		restore, err = ctx.updateRestoreStatus(restore)
+		return err
+	}
+
+	// filter resources from cache
+	err = ctx.filter.handle(restore)
+	if err != nil {
+		restore.Status.State = kahuapi.RestoreStateFailed
+		errMsg := fmt.Sprintf("Failed to filter resources. %s", err)
+		restore.Status.FailureReason = errMsg
+		restore, err = ctx.updateRestoreStatus(restore)
+		return err
+	}
+
+	// add mutation
+	err = ctx.mutator.handle(restore)
+	if err != nil {
+		restore.Status.State = kahuapi.RestoreStateFailed
+		restore.Status.FailureReason = fmt.Sprintf("Failed to mutate resources. %s", err)
+		restore, err = ctx.updateRestoreStatus(restore)
+		return err
+	}
+
+	return ctx.syncMetadataRestore(restore)
 }
 
 func (ctx *restoreContext) validateRestore(restore *kahuapi.Restore) {
@@ -303,18 +348,14 @@ func (ctx *restoreContext) validateRestore(restore *kahuapi.Restore) {
 
 func (ctx *restoreContext) updateRestoreStatus(restore *kahuapi.Restore) (*kahuapi.Restore, error) {
 	// get restore status from lister
-	currentRestore, err := ctx.restoreLister.Get(restore.Name)
-	if err != nil {
-		return ctx.updatePhaseWithClient(restore)
-	}
+	currentRestore := restore.DeepCopy()
 
 	currentRestore.Status = restore.Status
-	updatedRestore, err := ctx.restoreClient.UpdateStatus(context.TODO(),
-		currentRestore,
+	updatedRestore, err := ctx.restoreClient.UpdateStatus(context.TODO(), currentRestore,
 		v1.UpdateOptions{})
 	if err != nil {
 		if apierrors.IsResourceExpired(err) {
-			return ctx.updatePhaseWithClient(restore)
+			return restore, fmt.Errorf("Restore resource updated. %s", err)
 		}
 		return restore, err
 	}
@@ -322,19 +363,172 @@ func (ctx *restoreContext) updateRestoreStatus(restore *kahuapi.Restore) (*kahua
 	return updatedRestore, err
 }
 
-func (ctx *restoreContext) updatePhaseWithClient(restore *kahuapi.Restore) (*kahuapi.Restore, error) {
-	currentRestore, err := ctx.restoreClient.Get(context.TODO(), restore.Name, v1.GetOptions{})
+func (ctx *restoreContext) fetchBackup(restore *kahuapi.Restore) (*kahuapi.Backup, error) {
+	// fetch backup
+	backupName := restore.Spec.BackupName
+	backup, err := ctx.backupLister.Get(backupName)
 	if err != nil {
-		return restore, err
+		if apierrors.IsNotFound(err) {
+			ctx.logger.Errorf("Backup(%s) do not exist", backupName)
+			return nil, err
+		}
+		ctx.logger.Errorf("Failed to get backup. %s", err)
+		return nil, err
 	}
 
-	currentRestore.Status = restore.Status
-	updatedRestore, err := ctx.restoreClient.UpdateStatus(context.TODO(),
-		currentRestore,
-		v1.UpdateOptions{})
+	return backup, err
+}
+
+func (ctx *restoreContext) fetchBackupLocation(locationName string,
+	restore *kahuapi.Restore) (*kahuapi.BackupLocation, error) {
+	// fetch backup location
+	backupLocation, err := ctx.backupLocationLister.Get(locationName)
 	if err != nil {
-		return restore, err
+		if apierrors.IsNotFound(err) {
+			ctx.logger.Errorf("Backup location(%s) do not exist", locationName)
+			return nil, err
+		}
+		ctx.logger.Errorf("Failed to get backup location. %s", err)
+		return nil, err
 	}
 
-	return updatedRestore, err
+	return backupLocation, err
+}
+
+func (ctx *restoreContext) fetchProvider(providerName string,
+	restore *kahuapi.Restore) (*kahuapi.Provider, error) {
+	// fetch provider
+	provider, err := ctx.providerLister.Get(providerName)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			ctx.logger.Errorf("Metadata Provider(%s) do not exist", providerName)
+			return nil, err
+		}
+		ctx.logger.Errorf("Failed to get metadata provider. %s", err)
+		return nil, err
+	}
+
+	return provider, nil
+}
+
+func (ctx *restoreContext) fetchBackupInfo(restore *kahuapi.Restore) (*backupInfo, error) {
+	backup, err := ctx.fetchBackup(restore)
+	if err != nil {
+		ctx.logger.Errorf("Failed to get backup information for backup(%s). %s",
+			restore.Spec.BackupName, err)
+		return nil, err
+	}
+
+	backupLocation, err := ctx.fetchBackupLocation(backup.Spec.MetadataLocation, restore)
+	if err != nil {
+		ctx.logger.Errorf("Failed to get backup location information for %s. %s",
+			backup.Spec.MetadataLocation, err)
+		return nil, err
+	}
+
+	provider, err := ctx.fetchProvider(backupLocation.Spec.ProviderName, restore)
+	if err != nil {
+		ctx.logger.Errorf("Failed to get backup location provider for %s. %s",
+			backupLocation.Spec.ProviderName, err)
+		return nil, err
+	}
+
+	return &backupInfo{
+		backup:         backup,
+		backupLocation: backupLocation,
+		backupProvider: provider,
+	}, nil
+}
+
+func (ctx *restoreContext) fetchMetaServiceClient(backupProvider *kahuapi.Provider,
+	_ *kahuapi.Restore) (metaservice.MetaServiceClient, *grpc.ClientConn, error) {
+	if backupProvider.Spec.Type != kahuapi.ProviderTypeMetadata {
+		return nil, nil, fmt.Errorf("invalid metadata provider type (%s)",
+			backupProvider.Spec.Type)
+	}
+
+	// fetch service name
+	providerService, exist := backupProvider.Annotations[utils.BackupLocationServiceAnnotation]
+	if !exist {
+		return nil, nil, fmt.Errorf("failed to get metadata provider(%s) service info",
+			backupProvider.Name)
+	}
+
+	metaServiceClient, grpcConn, err := metaservice.GetMetaServiceClient(providerService)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get metadata service client(%s)",
+			providerService)
+	}
+
+	return metaServiceClient, grpcConn, nil
+}
+
+func (ctx *restoreContext) fetchBackupContent(backupProvider *kahuapi.Provider,
+	backupIdentifier *metaservice.BackupIdentifier,
+	restore *kahuapi.Restore) error {
+	// fetch meta service client
+	metaServiceClient, grpcConn, err := ctx.fetchMetaServiceClient(backupProvider, restore)
+	if err != nil {
+		ctx.logger.Errorf("Error fetching meta service client. %s", err)
+		return err
+	}
+	defer grpcConn.Close()
+
+	// fetch metadata backup file
+	restoreClient, err := metaServiceClient.Restore(context.TODO(), &metaservice.RestoreRequest{
+		Id: backupIdentifier,
+	})
+	if err != nil {
+		ctx.logger.Errorf("Error fetching meta service restore client. %s", err)
+		return fmt.Errorf("error fetching meta service restore client. %s", err)
+	}
+	defer restoreClient.CloseSend()
+
+	for {
+		res, err := restoreClient.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Errorf("Failed fetching data. %s", err)
+			return errors.Wrap(err, "unable to receive backup resource meta")
+		}
+
+		obj := new(unstructured.Unstructured)
+		err = json.Unmarshal(res.GetBackupResource().GetData(), obj)
+		if err != nil {
+			log.Errorf("Failed to unmarshal on backed up data %s", err)
+			return errors.Wrap(err, "unable to unmarshal received resource meta")
+		}
+
+		ctx.logger.Infof("Received %s/%s from meta service", obj.GroupVersionKind(), obj.GetName())
+		if ctx.excludeResource(obj) {
+			ctx.logger.Infof("Excluding %s/%s from processing", obj.GroupVersionKind(), obj.GetName())
+			continue
+		}
+
+		err = ctx.backupObjectIndexer.Add(obj)
+		if err != nil {
+			ctx.logger.Errorf("Unable to add resource %s/%s in restore cache. %s", obj.GroupVersionKind(),
+				obj.GetName(), err)
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (ctx *restoreContext) excludeResource(resource *unstructured.Unstructured) bool {
+	if excludeResources.Has(resource.GetKind()) {
+		return true
+	}
+
+	switch resource.GetKind() {
+	case "Service":
+		if resource.GetName() == "kubernetes" {
+			return true
+		}
+	}
+
+	return false
 }

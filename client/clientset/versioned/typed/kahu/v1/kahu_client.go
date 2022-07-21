@@ -30,6 +30,8 @@ type KahuV1Interface interface {
 	BackupLocationsGetter
 	ProvidersGetter
 	RestoresGetter
+	VolumeBackupContentsGetter
+	VolumeRestoreContentsGetter
 }
 
 // KahuV1Client is used to interact with features provided by the kahu.io group.
@@ -51,6 +53,14 @@ func (c *KahuV1Client) Providers() ProviderInterface {
 
 func (c *KahuV1Client) Restores() RestoreInterface {
 	return newRestores(c)
+}
+
+func (c *KahuV1Client) VolumeBackupContents() VolumeBackupContentInterface {
+	return newVolumeBackupContents(c)
+}
+
+func (c *KahuV1Client) VolumeRestoreContents() VolumeRestoreContentInterface {
+	return newVolumeRestoreContents(c)
 }
 
 // NewForConfig creates a new KahuV1Client for the given config.

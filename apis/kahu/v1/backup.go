@@ -22,15 +22,16 @@ import (
 
 // +genclient
 // +genclient:nonNamespaced
-// +genclient:skipVerbs=update,patch
+// +genclient:skipVerbs=update
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:printcolumn:name="MetadataLocation",type=string,JSONPath=`.spec.metadataLocation`
-// +kubebuilder:printcolumn:name="VolumeBackupLocations",type=string,JSONPath=`.spec.includeProviders`
+// +kubebuilder:printcolumn:name="VolumeBackupLocations",type=string,JSONPath=`.spec.volumeBackupLocations`
 // +kubebuilder:printcolumn:name="Stage",type=string,JSONPath=`.status.stage`
 // +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`
 // +kubebuilder:printcolumn:name="StartTimestamp",type=string,JSONPath=`.status.startTimestamp`
+// +kubebuilder:printcolumn:name="CompletionTimestamp",type=string,JSONPath=`.status.completionTimestamp`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 type Backup struct {
@@ -59,14 +60,10 @@ type BackupSpec struct {
 	// +optional
 	Hook HookSpec `json:"hook,omitempty"`
 
-	// IncludeProviders is a list of all provideres included for backup. If empty, all provideres
-	// are included
+	// VolumeBackupLocations is a list of all volume providers included for backup.
+	// If empty, all providers are included
 	// +optional
-	IncludeProviders []string `json:"includeProviders,omitempty"`
-
-	// ExcludeProviders is a list of all providers excluded for backup
-	// +optional
-	ExcludeProviders []string `json:"excludeProviders,omitempty"`
+	VolumeBackupLocations []string `json:"volumeBackupLocations,omitempty"`
 
 	// EnableMetadataBackup tells whether metadata backup should be taken or not
 	// +optional
@@ -207,13 +204,17 @@ type ReclaimPolicyType struct {
 	ReclaimPolicyRetain string `json:"reclaimPolicyRetain,omitempty"`
 }
 
-// BackupCondition indicates the current state of a resource that is backing up
-type BackupCondition struct {
+// BackupResource indicates the current state of a resource that is backing up
+type BackupResource struct {
 	metav1.TypeMeta `json:",inline"`
 
 	// ResourceName is a one of the item of backup that is backing up
 	// +optional
 	ResourceName string `json:"resourceName,omitempty"`
+
+	// Namespace of the backup resource
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
 
 	// Status is a state of the resource
 	// +optional
@@ -287,15 +288,21 @@ type BackupStatus struct {
 
 	// Conditions tells the current state of a resource that is backing up
 	// +optional
-	Conditions []BackupCondition `json:"conditions,omitempty"`
+	Resources []BackupResource `json:"resources,omitempty"`
 
 	// StartTimestamp is defines time when backup started
 	// +optional
 	// +nullable
 	StartTimestamp *metav1.Time `json:"startTimestamp,omitempty"`
+
+	// CompletionTimestamp is defines time when backup completed
+	// +optional
+	// +nullable
+	CompletionTimestamp *metav1.Time `json:"completionTimestamp,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
 type BackupList struct {
 	metav1.TypeMeta `json:",inline"`
 

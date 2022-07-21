@@ -61,6 +61,10 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kahu().V1().Providers().Informer()}, nil
 	case v1.SchemeGroupVersion.WithResource("restores"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kahu().V1().Restores().Informer()}, nil
+	case v1.SchemeGroupVersion.WithResource("volumebackupcontents"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kahu().V1().VolumeBackupContents().Informer()}, nil
+	case v1.SchemeGroupVersion.WithResource("volumerestorecontents"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kahu().V1().VolumeRestoreContents().Informer()}, nil
 
 	}
 

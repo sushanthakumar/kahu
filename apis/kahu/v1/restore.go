@@ -91,13 +91,12 @@ const (
 	RestoreStagePostHook  RestoreStage = "PostHook"
 	RestoreStageFinished  RestoreStage = "Finished"
 
-
-	RestoreStateNew              RestoreState = "New"
-	RestoreStateValidating       RestoreState = "Validating"
-	RestoreStateFailed           RestoreState = "Failed"
-	RestoreStateProcessing       RestoreState = "Processing"
-	RestoreStateCompleted        RestoreState = "Completed"
-	RestoreStateDeleting         RestoreState = "Deleting"
+	RestoreStateNew        RestoreState = "New"
+	RestoreStateValidating RestoreState = "Validating"
+	RestoreStateFailed     RestoreState = "Failed"
+	RestoreStateProcessing RestoreState = "Processing"
+	RestoreStateCompleted  RestoreState = "Completed"
+	RestoreStateDeleting   RestoreState = "Deleting"
 )
 
 // RestoreProgress expresses overall progress of restore
@@ -117,7 +116,6 @@ type RestoreStatus struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// +optional
-	// +kubebuilder:default=Initial
 	Stage RestoreStage `json:"stage,omitempty"`
 
 	// +optional

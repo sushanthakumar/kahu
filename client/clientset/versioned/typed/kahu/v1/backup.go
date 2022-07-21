@@ -25,6 +25,7 @@ import (
 	v1 "github.com/soda-cdm/kahu/apis/kahu/v1"
 	scheme "github.com/soda-cdm/kahu/client/clientset/versioned/scheme"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
 )
@@ -44,6 +45,7 @@ type BackupInterface interface {
 	Get(ctx context.Context, name string, opts metav1.GetOptions) (*v1.Backup, error)
 	List(ctx context.Context, opts metav1.ListOptions) (*v1.BackupList, error)
 	Watch(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error)
+	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions, subresources ...string) (result *v1.Backup, err error)
 	BackupExpansion
 }
 
@@ -151,4 +153,18 @@ func (c *backups) DeleteCollection(ctx context.Context, opts metav1.DeleteOption
 		Body(&opts).
 		Do(ctx).
 		Error()
+}
+
+// Patch applies the patch and returns the patched backup.
+func (c *backups) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts metav1.PatchOptions, subresources ...string) (result *v1.Backup, err error) {
+	result = &v1.Backup{}
+	err = c.client.Patch(pt).
+		Resource("backups").
+		Name(name).
+		SubResource(subresources...).
+		VersionedParams(&opts, scheme.ParameterCodec).
+		Body(data).
+		Do(ctx).
+		Into(result)
+	return
 }

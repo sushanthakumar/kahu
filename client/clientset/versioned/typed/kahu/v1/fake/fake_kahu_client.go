@@ -44,6 +44,14 @@ func (c *FakeKahuV1) Restores() v1.RestoreInterface {
 	return &FakeRestores{c}
 }
 
+func (c *FakeKahuV1) VolumeBackupContents() v1.VolumeBackupContentInterface {
+	return &FakeVolumeBackupContents{c}
+}
+
+func (c *FakeKahuV1) VolumeRestoreContents() v1.VolumeRestoreContentInterface {
+	return &FakeVolumeRestoreContents{c}
+}
+
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeKahuV1) RESTClient() rest.Interface {

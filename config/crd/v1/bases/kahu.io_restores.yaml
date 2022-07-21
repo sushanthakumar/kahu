@@ -191,7 +191,6 @@ spec:
                     type: integer
                 type: object
               stage:
-                default: Initial
                 enum:
                 - Initial
                 - PreHook

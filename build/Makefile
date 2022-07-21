@@ -28,6 +28,7 @@ PRJ_SRC_PATH := github.com/soda-cdm/kahu
 GENERATED_FILE_EXT := pb.go
 BASE_IMAGE_REGISTRY=docker.io
 VERSION ?= v0.1.0
+GOPATH :=  $(shell pwd)/$(OUT_DIR)/go
 
 # This controls the verbosity of the build.  Higher numbers mean more output.
 KAHU_VERBOSE ?= 1
@@ -111,7 +112,7 @@ ifeq ($(PRINT_HELP),y)
 generated_files:
 	@echo "$$GENERATED_FILES_HELP_INFO"
 else
-generated_files: verify
+generated_files:
 	$(MAKE) -f Makefile.generate_proto $@
 endif
 
@@ -156,7 +157,7 @@ controller-gen: ## Download controller-gen locally if necessary.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./apis/..." output:crd:artifacts:config=config/crd/v1/bases
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd:generateEmbeddedObjectMeta=true webhook paths="./apis/..." output:crd:artifacts:config=config/crd/v1/bases
 
 # go-get-tool will 'go get' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))

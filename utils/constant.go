@@ -29,11 +29,12 @@ const (
 	Daemonset   string = "DaemonSet"
 	Configmap   string = "ConfigMap"
 	Secret      string = "Secret"
-	Pvc         string = "PersistentVolumeClaim"
+	PVC         string = "PersistentVolumeClaim"
+	PV         	string = "PersistentVolume"
 	Endpoint    string = "Endpoint"
 	Sc          string = "StorageClass"
 )
 
 var SupportedResourceList = []string{Pod, Service, Deployment, Replicaset, Statefulset,
-	Daemonset, Configmap, Secret, Pvc, Endpoint, Sc,
+	Daemonset, Configmap, Secret, PVC, PV, Endpoint, Sc,
 }

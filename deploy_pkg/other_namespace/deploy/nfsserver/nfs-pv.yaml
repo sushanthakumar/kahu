@@ -24,7 +24,7 @@ spec:
     - ReadWriteMany
   nfs:
     # replace NFS_SERVER_IP with NFS Server service IP
-    server: 10.96.215.73
+    server: <x.x.x.x>
     path: "/"
   mountOptions:
     - nfsvers=4.2
