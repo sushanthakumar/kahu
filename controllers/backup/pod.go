@@ -79,25 +79,16 @@ func (c *controller) podBackup(namespace string,
 	for _, pod := range podList.Items {
 		if utils.Contains(podAllList, pod.Name) {
 			// Run pre hooks for the pod
-			k8sClient, err := kubernetes.NewForConfig(c.restClientconfig)
-			if err != nil {
-				c.logger.Errorf("Unable to get k8s client %s", err)
-				return err
-			}
-
-			pod_obj, err := k8sClient.CoreV1().Pods(pod.Namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
-			if err != nil {
-				c.logger.Errorf("Unable to get pod obj for name %s", err)
-				return err
-			}
-
-			err = c.execHook.ExecuteHook(
-				pod_obj,
-				hooks.PreHookPhase,
-			)
-			if err != nil {
-				c.logger.Errorf("pre hooks failed with error, %s", err)
-				return err
+			if c.execHook.IsHooksEnabled() {
+				err = c.execHook.ExecuteHook(
+					pod.Namespace,
+					pod.Name,
+					hooks.PreHookPhase,
+				)
+				if err != nil {
+					c.logger.Errorf("pre hooks failed with error, %s", err)
+					return err
+				}
 			}
 			
 			// backup the deployment yaml
@@ -117,14 +108,17 @@ func (c *controller) podBackup(namespace string,
 			if err != nil {
 				return err
 			}
-			// Run post hooks for the pod
-			err = c.execHook.ExecuteHook(
-				pod_obj,
-				hooks.PostHookPhase,
-			)
-			if err != nil {
-				c.logger.Errorf("post hooks failed with error, %s", err)
-				return err
+			if c.execHook.IsHooksEnabled() {
+				// Run post hooks for the pod
+				err = c.execHook.ExecuteHook(
+					pod.Namespace,
+					pod.Name,
+					hooks.PostHookPhase,
+				)
+				if err != nil {
+					c.logger.Errorf("post hooks failed with error, %s", err)
+					return err
+				}
 			}
 			// append the lables of pods to list
 			podLabelList = append(podLabelList, pod.Labels)
