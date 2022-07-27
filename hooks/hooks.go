@@ -56,7 +56,7 @@ const (
 
 
 type Hooks interface {
-	ExecuteHook(backupSpec *kahuapi.Backup, phase string) error
+	ExecuteHook(hookSpec *kahuapi.HookSpec, phase string) error
 }
 
 type hooksHandler struct {
@@ -80,10 +80,11 @@ func NewHooks(kubeClient kubernetes.Interface, restConfig *restclient.Config) (H
 }
 
 // ExecuteHook will handle executions of backup hooks
-func (h *hooksHandler) ExecuteHook(backup *kahuapi.Backup, phase string) error {
+func (h *hooksHandler) ExecuteHook(hookSpec *kahuapi.HookSpec, phase string) error {
 	h.logger = log.WithField("hook-phase", phase)
 		
-	if !isHooksSpecified(backup.Spec.Hook.Resources, phase) {
+	if !h.IsHooksSpecified(hookSpec.Resources, phase) {
+		h.logger.Infof("No hooks specified %+v", hookSpec.Resources)
 		// no hooks to handle
 		return nil
 	}
@@ -93,58 +94,68 @@ func (h *hooksHandler) ExecuteHook(backup *kahuapi.Backup, phase string) error {
 		h.logger.Errorf("unable to list namespaces for hooks %s", err.Error())
 		return err
 	}
-
-	filteredHookNamespaces := filterHookNamespaces(namespaces, backup)
-	
-	for _, namespace := range filteredHookNamespaces.UnsortedList() {
-		pods, err := h.kubeClient.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
-		if err != nil {
-			h.logger.Errorf("unable to list pod for namespace %s", namespace)
-			return err
-		}
-
-		// Filter pods for backup
-		var allPods []string
-		for _, pod := range pods.Items {
-			allPods = append(allPods, pod.Name)
-		}
-		filteredPods := utils.FindMatchedStrings(utils.Pod,
-			allPods,
-			backup.Spec.IncludeResources,
-			backup.Spec.ExcludeResources)
-		
-		for _, pod := range filteredPods {
-			err := h.executeHook(backup.Spec.Hook.Resources, namespace, pod, phase)
-			if err != nil {
-				h.logger.Errorf("failed to execute hook on pod %s, err %s", pod, err.Error())
-				return err
-			}	
-		}
-	}
-	return nil
-}
-
-func filterHookNamespaces(namespaces *v1.NamespaceList, backup *kahuapi.Backup) sets.String {
 	allNamespaces := sets.NewString()
 	for _, namespace := range namespaces.Items {
 		allNamespaces.Insert(namespace.Name)
 	}
-	// Filter namespaces for backup
-	filteredBackupNamespaces := filterIncludesExcludes(allNamespaces,
-		backup.Spec.IncludeNamespaces,
-		backup.Spec.ExcludeNamespaces)
 
-	// Filter namespaces for backup
+	// For each hook
+	for _, resources := range hookSpec.Resources {
+		filteredHookNamespaces := filterHookNamespaces(allNamespaces, resources)
+			for _, namespace := range filteredHookNamespaces.UnsortedList() {
+			if phase == PreHookPhase && len(resources.PreHooks) == 0 {
+				continue
+			}
+			if phase == PostHookPhase && len(resources.PostHooks) == 0 {
+				continue
+			}
+
+			// Get label selector
+			var labelSelectors map[string]string
+			if resources.LabelSelector != nil {
+				labelSelectors = resources.LabelSelector.MatchLabels
+			}
+			pods, err := h.kubeClient.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
+				LabelSelector: labels.Set(labelSelectors).String(),
+			})
+			if err != nil {
+				h.logger.Errorf("unable to list pod for namespace %s", namespace)
+				return err
+			}
+
+			// Filter pods for backup
+			var allPods []string
+			for _, pod := range pods.Items {
+				allPods = append(allPods, pod.Name)
+			}
+
+			filteredPods := utils.FindMatchedStrings(utils.Pod,
+				allPods,
+				resources.IncludeResources,
+				resources.ExcludeResources)
+			for _, pod := range filteredPods {
+				err := h.executeHook(resources, namespace, pod, phase)
+				if err != nil {
+					h.logger.Errorf("failed to execute hook on pod %s, err %s", pod, err.Error())
+					return err
+				}
+			}
+		}
+	}
+	h.logger.Infof("%s hook execution is success!", phase)
+	return nil
+}
+
+func filterHookNamespaces(allNamespaces sets.String , resourceHook kahuapi.ResourceHookSpec) sets.String {
+	// Filter namespaces for hook
 	hooksNsIncludes := sets.NewString()
 	hooksNsExcludes := sets.NewString()
-	for _, resourceHook := range backup.Spec.Hook.Resources {
-		hooksNsIncludes.Insert(resourceHook.IncludeNamespaces...)
-		hooksNsExcludes.Insert(resourceHook.ExcludeNamespaces...)
-	}
-	filteredHookNamespaces := filterIncludesExcludes(filteredBackupNamespaces,
+	hooksNsIncludes.Insert(resourceHook.IncludeNamespaces...)
+	hooksNsExcludes.Insert(resourceHook.ExcludeNamespaces...)
+	filteredHookNs := filterIncludesExcludes(allNamespaces,
 		hooksNsIncludes.UnsortedList(),
 		hooksNsExcludes.UnsortedList())
-	return filteredHookNamespaces
+	return filteredHookNs
 }
 
 func filterIncludesExcludes(rawItems sets.String, includes, excludes[]string) sets.String {
@@ -178,7 +189,7 @@ func filterIncludesExcludes(rawItems sets.String, includes, excludes[]string) se
 }
 
 // isHooksSpecified is helper for early exit
-func isHooksSpecified(resources []kahuapi.ResourceHookSpec, phase string) bool {
+func (h *hooksHandler) IsHooksSpecified(resources []kahuapi.ResourceHookSpec, phase string) bool {
 	if phase == PreHookPhase {
 		for _, resourceHook := range resources {
 			if len(resourceHook.PreHooks) > 0 {
@@ -198,7 +209,7 @@ func isHooksSpecified(resources []kahuapi.ResourceHookSpec, phase string) bool {
 
 // ExecuteHook executes the hooks in a container
 func (h *hooksHandler) executeHook(
-	hookSpecs []kahuapi.ResourceHookSpec,
+	resourceHook kahuapi.ResourceHookSpec,
 	namespace string,
 	name string,
 	stage string,
@@ -224,24 +235,23 @@ func (h *hooksHandler) executeHook(
 	}
 
 	labels := labels.Set(pod.GetLabels())
-	for _, resourceHook := range hookSpecs {
-		if !h.validateHook(resourceHook, name, namespace, labels) {
-			h.logger.Infof("validation for hook %s failed for pod (%s)", resourceHook.Name, pod.Name)
-			continue
-		}
+	if !h.validateHook(resourceHook, name, namespace, labels) {
+		h.logger.Infof("validation for hook %s failed for pod (%s)", resourceHook.Name, pod.Name)
+		// continue
+		return nil
+	}
 
-		hooks := resourceHook.PreHooks
-		if stage == PostHookPhase {
-			hooks = resourceHook.PostHooks
-		}
-		for _, hook := range hooks {
-			if hook.Exec != nil {
-				err := h.executePodCommand(pod, namespace, name, resourceHook.Name, hook.Exec)
-				if err != nil {
-					h.logger.Errorf("hook failed on %s (%s) with %s", pod.Name, resourceHook.Name, err.Error())
-					if hook.Exec.OnError == kahuapi.HookErrorModeFail {
-						return err
-					}
+	hooks := resourceHook.PreHooks
+	if stage == PostHookPhase {
+		hooks = resourceHook.PostHooks
+	}
+	for _, hook := range hooks {
+		if hook.Exec != nil {
+			err := h.executePodCommand(pod, namespace, name, resourceHook.Name, hook.Exec)
+			if err != nil {
+				h.logger.Errorf("hook failed on %s (%s) with %s", pod.Name, resourceHook.Name, err.Error())
+				if hook.Exec.OnError == kahuapi.HookErrorModeFail {
+					return err
 				}
 			}
 		}
