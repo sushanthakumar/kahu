@@ -36,8 +36,6 @@ const (
 	volumeContentVolumeProvider    = "kahu.io/backup-provider"
 	annVolumeBackupDeleteCompleted = "kahu.io/volume-backup-delete-completed"
 	annVolumeBackupCompleted       = "kahu.io/volume-backup-completed"
-	annBackupPreHookStarted        = "kahu.io/backup-prehook-started"
-	annBackupPostHookStarted       = "kahu.io/backup-posthook-started"
 )
 
 type Phase int

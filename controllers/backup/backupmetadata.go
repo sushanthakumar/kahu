@@ -62,21 +62,7 @@ func (ctrl *controller) processMetadataBackup(backup *kahuapi.Backup) error {
 	prepareBackupReq.Status.StartTimestamp = &metav1.Time{Time: time.Now()}
 	ctrl.updateStatus(prepareBackupReq.Backup, ctrl.backupClient, prepareBackupReq.Status)
 
-	// Initialize hooks
-	err = ctrl.runBackup(prepareBackupReq)
-	if err != nil {
-		prepareBackupReq.Status.State = kahuapi.BackupStateFailed
-	} else {
-		prepareBackupReq.Status.State = kahuapi.BackupStateCompleted
-		prepareBackupReq.Status.Stage = kahuapi.BackupStageFinished
-	}
-	prepareBackupReq.Status.LastBackup = &metav1.Time{Time: time.Now()}
-	time := metav1.Now()
-	prepareBackupReq.Status.CompletionTimestamp = &time
-
-	ctrl.logger.Infof("completed backup with status: %s", prepareBackupReq.Status.Stage)
-	ctrl.updateStatus(prepareBackupReq.Backup, ctrl.backupClient, prepareBackupReq.Status)
-	return err
+	return ctrl.runBackup(prepareBackupReq)
 }
 
 func (ctrl *controller) prepareBackupRequest(backup *kahuapi.Backup) *PrepareBackup {
