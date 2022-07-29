@@ -39,20 +39,20 @@ func getVBCName() string {
 	return fmt.Sprintf("vbc-%s", uuid.New().String())
 }
 
-func (ctrl *controller) processVolumeBackup(backup *kahuapi.Backup, ctx Context) error {
+func (ctrl *controller) processVolumeBackup(backup *kahuapi.Backup, ctx Context) (*kahuapi.Backup, error) {
 	ctrl.logger.Infof("Processing Volume backup(%s)", backup.Name)
 
 	pvs, err := ctrl.getVolumes(backup, ctx)
 	if err != nil {
-		return err
+		return backup, err
 	}
 
 	if len(pvs) == 0 {
 		ctrl.logger.Infof("No volume for backup. " +
 			"Setting stage to volume backup completed")
 		// set annotation for
-		_, err = ctrl.annotateBackup(annVolumeBackupCompleted, backup)
-		return err
+		backup, err = ctrl.annotateBackup(annVolumeBackupCompleted, backup)
+		return backup, err
 	}
 
 	// group pv with providers
@@ -67,7 +67,7 @@ func (ctrl *controller) processVolumeBackup(backup *kahuapi.Backup, ctx Context)
 	}
 
 	// ensure volume backup content
-	return ctrl.ensureVolumeBackupContent(backup.Name, pvProviderMap)
+	return backup, ctrl.ensureVolumeBackupContent(backup.Name, pvProviderMap)
 }
 
 func (ctrl *controller) removeVolumeBackup(

@@ -229,38 +229,174 @@ func (ctrl *controller) syncBackup(backup *kahuapi.Backup) error {
 
 func (ctrl *controller) syncVolumeBackup(
 	backup *kahuapi.Backup) (err error) {
-	// check if volume backup required
-	if metav1.HasAnnotation(backup.ObjectMeta, annVolumeBackupCompleted) {
-		backup, err = ctrl.updateBackupStatusWithEvent(backup,
-			kahuapi.BackupStatus{Stage: kahuapi.BackupStageResources},
-			v1.EventTypeNormal, "VolumeBackupSuccess", "Volume backup successful")
+
+	ctrl.logger.Infof("DEBUG: Backup: syncVolumeBackup backup stage %s", backup.Status.Stage)
+	ctrl.logger.Infof("DEBUG: Backup: syncVolumeBackup backup status %s", backup.Status.State)
+
+	var backupContext Context
+	switch backup.Status.Stage {
+	case kahuapi.BackupStageInitial:
+		ctrl.logger.Infof("DEBUG: Backup: --BackupStageInitial--  %s", backup.Name)
+		// preprocess backup spec and try to get all backup resources
+		backupContext = newContext(backup, ctrl)
+		err = backupContext.Complete()
 		if err != nil {
-			ctrl.logger.Errorf("Unable to update backup status. %s", err)
+			ctrl.logger.Errorf("Unable to filter resources. %s", err)
+			backup.Status.State = kahuapi.BackupStateFailed
+			backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
+			ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
+			return err
+		}
+		// update state
+		backup.Status.State = kahuapi.BackupStateProcessing
+		backup.Status.ValidationErrors = []string{}
+		ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
+
+		ctrl.logger.Infof("DEBUG: Backup: created new backup context")
+		// sync resources with backup.Status.Resources
+		backup, err = backupContext.SyncResources(backup)
+		if err != nil {
+			ctrl.logger.Errorf("Update backup(%s) processing: failed to "+
+				"sync backup resources for volume backup", backup.Name)
+			backup.Status.State = kahuapi.BackupStateFailed
+			backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
+			ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
+			return err
+		}
+		if ctrl.hookExecutor.IsHooksSpecified(backup.Spec.Hook.Resources, hooks.PreHookPhase) {
+			ctrl.logger.Infof("DEBUG: Backup: PRE hooks is specified for  %s", backup.Name)
+			backup, err = ctrl.updateBackupStatusWithEvent(backup,
+				kahuapi.BackupStatus{
+					Stage: kahuapi.BackupStagePreHook,
+				},
+				v1.EventTypeNormal,
+				string(kahuapi.BackupStagePreHook),
+				"Starting prehook execution")
+			if err != nil {
+				ctrl.logger.Errorf("Update backup(%s) processing: failed to "+
+					"update Prehook stage for volume backup", backup.Name)
+				return err
+			}
+			ctrl.logger.Infof("DEBUG: Backup: updated backup status for prehook  %s", backup.Name)
+		} else {
+			backup, err = ctrl.updateBackupStatusWithEvent(backup,
+				kahuapi.BackupStatus{
+					Stage: kahuapi.BackupStageVolumes,
+				},
+				v1.EventTypeNormal,
+				string(kahuapi.BackupStageVolumes),
+				"Starting backup volumes")
+			if err != nil {
+				ctrl.logger.Infof("DEBUG: Backup: Update status for volumeback failed@  %s", backup.Name)
+				return err
+			}
+		}
+	case kahuapi.BackupStagePreHook:
+		ctrl.logger.Infof("DEBUG: Backup: --BackupStagePreHook--  %s", backup.Name)
+		// Execute pre hooks
+		err = ctrl.hookExecutor.ExecuteHook(&backup.Spec.Hook, hooks.PreHookPhase)
+		if err != nil {
+			ctrl.logger.Infof("DEBUG: Backup: updated backup status for prehook  %s", backup.Name)
+			ctrl.logger.Errorf("Update backup(%s) processing: failed to "+
+				"process Prehook for volume backup", backup.Name)
+			backup.Status.State = kahuapi.BackupStateFailed
+			backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
+			ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
+			return nil
+		}
+		backup, err = ctrl.updateBackupStatusWithEvent(backup,
+			kahuapi.BackupStatus{
+				Stage: kahuapi.BackupStageVolumes,
+			},
+			v1.EventTypeNormal,
+			string(kahuapi.BackupStageVolumes),
+			"Starting backup volumes")
+		if err != nil {
+			ctrl.logger.Infof("DEBUG: Backup: Update status for volumeback failed@  %s", backup.Name)
 			return err
 		}
 
-		if backup.Status.Stage == kahuapi.BackupStageFinished &&
-			backup.Status.State == kahuapi.BackupStateCompleted {
-			ctrl.logger.Infof("Backup is finished already")
-			return nil
-		}
-
-		// add volume backup content in resource backup list
-		err := ctrl.syncResourceBackup(backup)
+	case kahuapi.BackupStageVolumes:
+		ctrl.logger.Infof("DEBUG: Backup: --BackupStageVolumes--  %s", backup.Name)
+		// preprocess backup spec and try to get all backup resources
+		backupContext = newContext(backup, ctrl)
+		err = backupContext.Complete()
 		if err != nil {
+			ctrl.logger.Errorf("Unable to filter resources. %s", err)
 			backup.Status.State = kahuapi.BackupStateFailed
 			backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
 			ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
 			return err
 		}
 
-		backup, err = ctrl.updateBackupStatusWithEvent(backup, kahuapi.BackupStatus{
-			Stage: kahuapi.BackupStagePostHook,
-		}, v1.EventTypeNormal, "Preparing to execute post hook",
-			"Backup resources success")
+		ctrl.logger.Infof("DEBUG: Backup: created new backup context")
+		// sync resources with backup.Status.Resources
+		backup, err = backupContext.SyncResources(backup)
 		if err != nil {
+			ctrl.logger.Errorf("Update backup(%s) processing: failed to "+
+				"sync backup resources for volume backup", backup.Name)
+			backup.Status.State = kahuapi.BackupStateFailed
+			backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
+			ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
 			return err
 		}
+		backup, err = ctrl.processVolumeBackup(backup, backupContext)
+		if err != nil {
+			backup.Status.State = kahuapi.BackupStateFailed
+			backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
+			ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
+			return err
+		}
+		// populate all meta service
+		backup, err = ctrl.updateBackupStatusWithEvent(backup,
+			kahuapi.BackupStatus{
+				Stage: kahuapi.BackupStageResources,
+			},
+			v1.EventTypeNormal,
+			"VolumeBackupScheduled",
+			"Volume backup Scheduled")
+		if err != nil {
+			ctrl.logger.Infof("DEBUG: Backup: Update status for resourcesbk failed@  %s", backup.Name)
+			return err
+		}
+
+	case kahuapi.BackupStageResources:
+		ctrl.logger.Infof("DEBUG: Backup: --BackupStageResources--  %s", backup.Name)
+		if !metav1.HasAnnotation(backup.ObjectMeta, annVolumeBackupCompleted) {
+			ctrl.logger.Infof("DEBUG: Backup: no annotation return  %s", backup.Name)
+			return nil
+		}
+		// add volume backup content in resource backup list
+		err := ctrl.syncResourceBackup(backup)
+		if err != nil {
+			backup.Status.State = kahuapi.BackupStateFailed
+			backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
+			ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
+			return nil
+		}
+		if ctrl.hookExecutor.IsHooksSpecified(backup.Spec.Hook.Resources, hooks.PreHookPhase) {
+			backup, err = ctrl.updateBackupStatusWithEvent(backup, kahuapi.BackupStatus{
+				Stage: kahuapi.BackupStagePostHook,
+			}, v1.EventTypeNormal, string(kahuapi.BackupStagePostHook), "Starting to execute post hook")
+			if err != nil {
+				ctrl.logger.Infof("DEBUG: Backup: Update status for post hook failed@  %s", backup.Name)
+				return err
+			}
+		} else {
+			backup, err = ctrl.updateBackupStatusWithEvent(backup,
+				kahuapi.BackupStatus{
+					Stage: kahuapi.BackupStageFinished,
+				},
+				v1.EventTypeNormal,
+				string(kahuapi.BackupStageResources),
+				"Metdata backup success")
+			if err != nil {
+				ctrl.logger.Infof("DEBUG: Backup: Update status for backup failed@  %s", backup.Name)
+				return err
+			}
+		}
+	case kahuapi.BackupStagePostHook:
+		ctrl.logger.Infof("DEBUG: Backup: --BackupStagePostHook--  %s", backup.Name)
 		// Execute post hooks
 		err = ctrl.hookExecutor.ExecuteHook(&backup.Spec.Hook, hooks.PostHookPhase)
 		if err != nil {
@@ -269,8 +405,6 @@ func (ctrl *controller) syncVolumeBackup(
 			backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
 			ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
 		}
-
-		// populate all meta service status
 		backup, err = ctrl.updateBackupStatusWithEvent(backup,
 			kahuapi.BackupStatus{
 				Stage: kahuapi.BackupStageFinished,
@@ -278,71 +412,103 @@ func (ctrl *controller) syncVolumeBackup(
 			v1.EventTypeNormal,
 			string(kahuapi.BackupStageResources),
 			"Metdata backup success")
+		if err != nil {
+			ctrl.logger.Infof("DEBUG: Backup: Update status for backup failed@  %s", backup.Name)
+			return err
+		}
+	case kahuapi.BackupStageFinished:
+		ctrl.logger.Infof("DEBUG: Backup: --BackupStageFinished--  %s", backup.Name)
+		if backup.Status.State == kahuapi.BackupStateCompleted {
+			return nil
+		}
 		backup.Status.LastBackup = &metav1.Time{Time: time.Now()}
 		time := metav1.Now()
 		backup.Status.CompletionTimestamp = &time
+		backup.Status.State = kahuapi.BackupStateCompleted
 
 		ctrl.logger.Infof("completed backup with status: %s", backup.Status.Stage)
 		ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
-
-			return err
+		ctrl.logger.Infof("DEBUG: Backup: BACKUP of all completed for  %s ----", backup.Name)
+	default:
+		ctrl.logger.Infof("DEBUG: Backup: --default--  %s", backup.Name)
 	}
 
-	// preprocess backup spec and try to get all backup resources
-	backupContext := newContext(backup, ctrl)
-	err = backupContext.Complete()
-	if err != nil {
-		ctrl.logger.Errorf("Unable to filter resources. %s", err)
-		return err
-	}
+	// // check if volume backup required
+	// if metav1.HasAnnotation(backup.ObjectMeta, annVolumeBackupCompleted) {
+	// 	ctrl.logger.Infof("DEBUG: Backup: YES COMPLETED annotations!!! %s", backup.Name)
+	// 	backup, err = ctrl.updateBackupStatusWithEvent(backup,
+	// 		kahuapi.BackupStatus{Stage: kahuapi.BackupStageResources},
+	// 		v1.EventTypeNormal, "VolumeBackupSuccess", "Resource backup starting")
+	// 	if err != nil {
+	// 		ctrl.logger.Errorf("Unable to update backup status to resources1. %s", err)
+	// 		return err
+	// 	}
+	// 	ctrl.logger.Infof("DEBUG: Backup: volume backup completed for  %s", backup.Name)
+	// 	// if backup.Status.Stage == kahuapi.BackupStageFinished &&
+	// 	// 	backup.Status.State == kahuapi.BackupStateCompleted {
+	// 	// 	ctrl.logger.Infof("Backup is finished already")
+	// 	// 	return nil
+	// 	// }
 
-	// sync resources with backup.Status.Resources
-	backup, err = backupContext.SyncResources(backup)
-	if err != nil {
-		ctrl.logger.Errorf("Update backup(%s) processing: failed to "+
-			"sync backup resources for volume backup", backup.Name)
-		return err
-	}
+	// 	// add volume backup content in resource backup list
+	// 	err := ctrl.syncResourceBackup(backup)
+	// 	if err != nil {
+	// 		backup.Status.State = kahuapi.BackupStateFailed
+	// 		backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
+	// 		ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
+	// 		return nil
+	// 	}
 
-	backup, err = ctrl.updateBackupStatusWithEvent(backup, kahuapi.BackupStatus{
-		Stage: kahuapi.BackupStagePreHook,
-	}, v1.EventTypeNormal, string(kahuapi.BackupStageInitial),
-		"Backup validation success")
-	if err != nil {
-		return err
-	}
+	// 	ctrl.logger.Infof("DEBUG: Backup: Resource backup completed for  %s", backup.Name)
 
-	// Execute pre hooks
-	err = ctrl.hookExecutor.ExecuteHook(&backup.Spec.Hook, hooks.PreHookPhase)
-	if err != nil {
-		backup.Status.State = kahuapi.BackupStateFailed
-		backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
-		ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
-		return nil
-	}
+	// 	if ctrl.hookExecutor.IsHooksSpecified(backup.Spec.Hook.Resources, hooks.PreHookPhase) {
+	// 		// Execute post hooks
+	// 		err = ctrl.hookExecutor.ExecuteHook(&backup.Spec.Hook, hooks.PostHookPhase)
+	// 		if err != nil {
+	// 			ctrl.logger.Errorf("failed to Execute post hooks: %s", err.Error())
+	// 			backup.Status.State = kahuapi.BackupStateFailed
+	// 			backup.Status.ValidationErrors = append(backup.Status.ValidationErrors, fmt.Sprintf("%v", err))
+	// 			ctrl.updateStatus(backup, ctrl.backupClient, backup.Status)
+	// 		}
+	// 	}
+	// 	ctrl.logger.Infof("DEBUG: Backup: Posthook for backup completed for  %s", backup.Name)
+	// 	// populate all meta service status
+	// 	backup, err = ctrl.updateBackupStatusWithEvent(backup,
+	// 		kahuapi.BackupStatus{
+	// 			Stage: kahuapi.BackupStageFinished,
+	// 		},
+	// 		v1.EventTypeNormal,
+	// 		string(kahuapi.BackupStageResources),
+	// 		"Metdata backup success")
+	// 	if err != nil {
+	// 		ctrl.logger.Infof("DEBUG: Backup: Update status for backup failed@  %s", backup.Name)
+	// 		return err
+	// 	}
+	// }
 
-	backup, err = ctrl.updateBackupStatusWithEvent(backup, kahuapi.BackupStatus{
-		Stage: kahuapi.BackupStageVolumes,
-	}, v1.EventTypeNormal, string(kahuapi.BackupStagePreHook),
-		"Pre-hook execution success")
-	if err != nil {
-		return err
-	}
+	// ctrl.logger.Infof("DEBUG: Backup: No COMPLETED annotations!!! %s", backup.Name)
 
-	err = ctrl.processVolumeBackup(backup, backupContext)
-	if err != nil {
-		return err
-	}
-	// populate all meta service
-	backup, err = ctrl.updateBackupStatusWithEvent(backup, kahuapi.BackupStatus{
-		State: kahuapi.BackupStateProcessing,
-	}, v1.EventTypeNormal, "VolumeBackupScheduled",
-		"Volume backup Scheduled")
-	if err != nil {
-		return err
-	}
+	// // backup, err = ctrl.updateBackupStatusWithEvent(backup,
+	// // 	kahuapi.BackupStatus{
+	// // 		Stage: kahuapi.BackupStageInitial,
+	// // 	},
+	// // 	v1.EventTypeNormal,
+	// // 	string(kahuapi.BackupStageInitial),
+	// // 	"Starting backup")
+	// // if err != nil {
+	// // 	ctrl.logger.Errorf("Update backup(%s) processing: failed to "+
+	// // 	"update initial stage for volume backup", backup.Name)
+	// // 	return err
+	// // }
 
-	return err
+	// ctrl.logger.Infof("DEBUG: Backup:synced Resources to context %s", backup.Name)
+
+	// if ctrl.hookExecutor.IsHooksSpecified(backup.Spec.Hook.Resources, hooks.PreHookPhase) {
+
+	// }
+	// ctrl.logger.Infof("DEBUG: Backup: updated backup status for prehook  %s", backup.Name)
+
+	return nil
 }
 
 func (ctrl *controller) syncResourceBackup(
@@ -468,11 +634,13 @@ func (ctrl *controller) updateBackupStatus(
 	// update Phase
 	if status.Stage != "" && toIota(backup.Status.Stage) < toIota(status.Stage) {
 		backupClone.Status.Stage = status.Stage
+		ctrl.logger.Infof("DEBUG: stage less :%+v -> %+v", backup.Status.State, status.Stage)
 		dirty = true
 	}
 
 	if status.State != "" && backup.Status.State != status.State {
 		backupClone.Status.State = status.State
+		ctrl.logger.Infof("DEBUG: stage not nil :%+v -> %+v", backup.Status.State, status.Stage)
 		dirty = true
 	}
 
@@ -480,18 +648,21 @@ func (ctrl *controller) updateBackupStatus(
 	if len(status.ValidationErrors) > 0 {
 		backupClone.Status.ValidationErrors = append(backupClone.Status.ValidationErrors,
 			status.ValidationErrors...)
+		ctrl.logger.Infof("DEBUG: val errors :%+v", status.Stage)
 		dirty = true
 	}
 
 	// update Start time
 	if backup.Status.StartTimestamp == nil {
 		backupClone.Status.StartTimestamp = status.StartTimestamp
+		ctrl.logger.Infof("DEBUG: ts not nil :%+v", status.Stage)
 		dirty = true
 	}
 
 	if backup.Status.LastBackup == nil &&
 		status.LastBackup != nil {
 		backupClone.Status.LastBackup = status.LastBackup
+		ctrl.logger.Infof("DEBUG: last backup is nil :%+v", status.Stage)
 		dirty = true
 	}
 
@@ -499,6 +670,7 @@ func (ctrl *controller) updateBackupStatus(
 		backupClone.Status.Resources = append(backupClone.Status.Resources,
 			status.Resources...)
 		dirty = true
+		ctrl.logger.Infof("DEBUG: res len is nil :%+v", status.Stage)
 	}
 
 	if dirty {
