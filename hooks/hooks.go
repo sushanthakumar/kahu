@@ -57,6 +57,7 @@ const (
 
 type Hooks interface {
 	ExecuteHook(hookSpec *kahuapi.HookSpec, phase string) error
+	IsHooksSpecified(resources []kahuapi.ResourceHookSpec, phase string) bool
 }
 
 type hooksHandler struct {
@@ -82,12 +83,6 @@ func NewHooks(kubeClient kubernetes.Interface, restConfig *restclient.Config) (H
 // ExecuteHook will handle executions of backup hooks
 func (h *hooksHandler) ExecuteHook(hookSpec *kahuapi.HookSpec, phase string) error {
 	h.logger = log.WithField("hook-phase", phase)
-		
-	if !h.IsHooksSpecified(hookSpec.Resources, phase) {
-		h.logger.Infof("No hooks specified %+v", hookSpec.Resources)
-		// no hooks to handle
-		return nil
-	}
 
 	namespaces, err := h.kubeClient.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
