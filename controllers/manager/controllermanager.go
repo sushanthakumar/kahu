@@ -37,6 +37,7 @@ import (
 	"github.com/soda-cdm/kahu/controllers/backup"
 	"github.com/soda-cdm/kahu/controllers/restore"
 	"github.com/soda-cdm/kahu/discovery"
+	"github.com/soda-cdm/kahu/hooks"
 )
 
 type ControllerManager struct {
@@ -49,6 +50,7 @@ type ControllerManager struct {
 	kubeClient               kubernetes.Interface
 	discoveryHelper          discovery.DiscoveryHelper
 	EventBroadcaster         record.EventBroadcaster
+	HookExecutor			 hooks.Hooks
 }
 
 func NewControllerManager(ctx context.Context,
@@ -81,6 +83,7 @@ func NewControllerManager(ctx context.Context,
 		informerFactory:          informerFactory,
 		discoveryHelper:          completeConfig.DiscoveryHelper,
 		EventBroadcaster:         completeConfig.EventBroadcaster,
+		HookExecutor:             completeConfig.HookExecutor,
 	}, nil
 }
 
@@ -96,7 +99,8 @@ func (mgr *ControllerManager) InitControllers() (map[string]controllers.Controll
 		mgr.completeConfig.DynamicClient,
 		mgr.informerFactory,
 		mgr.EventBroadcaster,
-		mgr.completeConfig.DiscoveryHelper)
+		mgr.completeConfig.DiscoveryHelper,
+		mgr.HookExecutor)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize backup controller. %s", err)
 	}

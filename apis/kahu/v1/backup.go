@@ -85,26 +85,15 @@ type BackupSpec struct {
 	// IncludeResources is a list of all resources included for backup. If empty, all resources
 	// are included
 	// +optional
-	IncludeResources []ResourceIncluder `json:"includeResources,omitempty"`
+	IncludeResources []ResourceSpec `json:"includeResources,omitempty"`
 
 	// ExcludeResources is a list of all resources excluded for backup
 	// +optional
-	ExcludeResources []ResourceIncluder `json:"excludeResources,omitempty"`
+	ExcludeResources []ResourceSpec `json:"excludeResources,omitempty"`
 
 	// Label is used to filter the resources
 	// +optional
 	Label *metav1.LabelSelector `json:"label,omitempty"`
-}
-
-type ResourceIncluder struct {
-	// +optional
-	Name string `json:"name,omitempty"`
-
-	// +optional
-	Kind string `json:"kind,omitempty"`
-
-	// +optional
-	IsRegex bool `json:"isRegex,omitempty"`
 }
 
 // HookSpec is hook which should be executed
@@ -132,11 +121,11 @@ type ResourceHookSpec struct {
 	// IncludeResources is a list of all resources included for hook. If empty, all resources
 	// are included
 	// +optional
-	IncludeResources []ResourceIncluder `json:"includeResources,omitempty"`
+	IncludeResources []ResourceSpec `json:"includeResources,omitempty"`
 
 	// ExcludeResources is a list of all resources excluded for backup
 	// +optional
-	ExcludeResources []ResourceIncluder `json:"excludeResources,omitempty"`
+	ExcludeResources []ResourceSpec `json:"excludeResources,omitempty"`
 
 	// Label is used to filter the resources
 	// +optional

@@ -48,8 +48,8 @@ var backupPhases = [...]kahuapi.BackupStage{
 	kahuapi.BackupStageInitial,
 	kahuapi.BackupStagePreHook,
 	kahuapi.BackupStageVolumes,
-	kahuapi.BackupStagePostHook,
 	kahuapi.BackupStageResources,
+	kahuapi.BackupStagePostHook,
 	kahuapi.BackupStageFinished}
 
 func toIota(p kahuapi.BackupStage) Phase {
