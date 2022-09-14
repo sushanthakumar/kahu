@@ -20,14 +20,20 @@ import (
 	"fmt"
 	"path/filepath"
 
-	kahuapi "github.com/soda-cdm/kahu/apis/kahu/v1beta1"
+	kahuapi "github.com/soda-cdm/kahu/apis/kahu/v1"
 	pb "github.com/soda-cdm/kahu/providerframework/metaservice/lib/go"
 )
 
-func ResourceToFile(resource *pb.Resource) string {
-	return filepath.Join(resource.Group,
-		resource.Version,
+func ResourceToFile(backupHandle string, resource *pb.Resource) string {
+	if resource.Group == "" {
+		return filepath.Join(backupHandle,
+			resource.Kind,
+			resource.Version,
+			resource.Name)
+	}
+	return filepath.Join(backupHandle,
 		resource.Kind,
+		resource.Group+"."+resource.Version,
 		resource.Name)
 }
 
@@ -38,7 +44,7 @@ func FileToResource(filePath string) *pb.Resource {
 	dir, file = filepath.Split(dir)
 	resource.Kind = file
 	dir, file = filepath.Split(dir)
-	resource.Version = file
+	resource.Group = file
 	dir, file = filepath.Split(dir)
 	resource.Version = file
 

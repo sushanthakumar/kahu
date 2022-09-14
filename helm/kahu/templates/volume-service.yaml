@@ -1,0 +1,106 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kahu-volume-service-sa
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: kahu-volume-service
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: volume-service-role
+  labels:
+    app: kahu-volume-service
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["create", "get", "list", "watch", "update", "delete", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: volume-provider-role
+  labels:
+    app: kahu-volume-service
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["create", "get", "list", "watch", "update", "delete", "patch"]          
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: volume-service-binding
+  labels:
+    app: kahu-volume-service
+subjects:
+  - kind: ServiceAccount
+    name: kahu-volume-service-sa
+    namespace: {{ .Values.global.namespace }}
+roleRef:
+  kind: ClusterRole
+  name: volume-service-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kahu-volume-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: kahu-volume-service
+spec:
+  replicas: {{ .Values.volumeService.replicaCount }}
+  selector:
+    matchLabels:
+      app: kahu-volume-service
+  template:
+    metadata:
+      labels:
+        app: kahu-volume-service
+    spec:
+      serviceAccount: kahu-volume-service-sa
+      containers:
+        - name: volume-service
+          image: {{ .Values.images.volumeService }}
+          imagePullPolicy: {{ .Values.global.image.pullpolicy }}
+          args:
+            - --driverEndpoint
+            - /tmp/volumeservice.sock
+          command:
+            - /usr/local/bin/volume-service
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /tmp
+              name: socket-dir
+
+      volumes:
+        - emptyDir: null
+          name: socket-dir
+        - hostPath:
+            path: /var/log/
+            type: Directory
+          name: log
+        - hostPath:
+            path: /opt
+            type: DirectoryOrCreate
+          name: opt
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kahu-volume-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: kahu-volume-service
+spec:
+  selector:
+    app: kahu-volume-service

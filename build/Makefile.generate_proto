@@ -57,6 +57,7 @@ $(PROTOC):
 # for protoc
 PROTOC_GEN_GO_PKG := github.com/golang/protobuf/protoc-gen-go
 PROTOC_GEN_GO := $(PROTO_BIN_DIR)/protoc-gen-go
+
 $(PROTOC_GEN_GO): PROTOBUF_PKG := $(dir $(PROTOC_GEN_GO_PKG))
 $(PROTOC_GEN_GO): PROTOBUF_VERSION := v1.5.2
 $(PROTOC_GEN_GO): $(PROTO_DIR)

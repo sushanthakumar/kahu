@@ -1,0 +1,44 @@
+# Default values for kahu.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# all global values across charts go here
+global: 
+  namespace: kahu
+  image:
+    pullPolicy: IfNotPresent
+  logging:
+    module: file
+    level: info
+    fileSize: 20M
+    maxBackups: 9
+
+images:
+  backup : docker.io/library/kahu-backup:1.0.0.B020
+  nfsProvider : docker.io/library/kahu-nfs-provider:1.0.0.B020
+  metadataService : docker.io/library/kahu-metadata-service:1.0.0.B020
+  volumeService : docker.io/library/kahu-volume-service:1.0.0.B020
+
+metadataRepository:
+  nfs:
+    server: <NFS_SERVER_IP>  # Change to the actual NFS Server IP address
+    path: <NFS_SERVER_PATH> # Change to the export path
+    version: 4.1
+    capacity: <VOLUME_CAPACITY> # Change to the volume capacity
+
+backupService:
+  replicaCount: 1
+  backup: 
+
+metadataService:
+  replicaCount: 1
+  grpcPort: 8181
+  nfsProvider: 
+  metadataService: 
+
+volumeService:
+  replicaCount: 1
+  csiDriverEndpoint: /tmp/volumeservice.sock
+  volumeService: 
+
+

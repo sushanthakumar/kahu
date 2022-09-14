@@ -1,0 +1,13 @@
+apiVersion: kahu.io/v1
+kind: Backup
+metadata:
+  name: backup-demo-12
+spec:
+  # includeResources:
+  excludeResources: []
+  includeNamespaces: [default]
+  metadataLocation: nfs
+  includeResources:
+    - name:
+      kind: Pod
+      isRegex: true

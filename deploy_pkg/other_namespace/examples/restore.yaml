@@ -1,0 +1,9 @@
+apiVersion: kahu.io/v1
+kind: Restore 
+metadata:
+   name: restore-demo-4
+spec:
+   backupName: backup-demo-12
+   namespaceMapping:
+     default: sk
+
