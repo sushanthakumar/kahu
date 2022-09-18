@@ -38,6 +38,7 @@ build::get_docker_wrapped_binaries() {
     controllermanager
     metaservice
     nfsprovider
+    volume-service
   )
 
   echo "${targets[@]}"

@@ -19,7 +19,6 @@ package app
 import (
 	"context"
 	"fmt"
-	controllerruntime "github.com/soda-cdm/kahu/_output/go/pkg/mod/sigs.k8s.io/controller-runtime@v0.9.7"
 	"os"
 	"os/signal"
 	"syscall"

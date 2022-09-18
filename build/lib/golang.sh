@@ -29,6 +29,7 @@ readonly KAHU_STATIC_BINARIES=(
   controllermanager
   metaservice
   nfsprovider
+  volume-service
 )
 
 golang::targets() {
@@ -36,6 +37,7 @@ golang::targets() {
   local targets=(
     cmd/controllermanager
     cmd/metaservice
+    cmd/volume-service
     providers/nfsprovider/nfsprovider
   )
   echo "${targets[@]}"
