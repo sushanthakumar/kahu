@@ -41,8 +41,8 @@ import (
 
 	kahuapi "github.com/soda-cdm/kahu/apis/kahu/v1"
 	kahulister "github.com/soda-cdm/kahu/client/listers/kahu/v1"
-	providerservice "github.com/soda-cdm/kahu/providers/lib/go"
 	metaservice "github.com/soda-cdm/kahu/providerframework/metaservice/lib/go"
+	providerservice "github.com/soda-cdm/kahu/providers/lib/go"
 )
 
 const (
@@ -121,7 +121,7 @@ func GetMetaserviceBackupClient(address string, port uint) metaservice.MetaServi
 	return backupClient
 }
 
-func GetGRPCConnection(endpoint string, dialOptions ...grpc.DialOption) (grpc.ClientConnInterface, error) {
+func GetGRPCConnection(endpoint string, dialOptions ...grpc.DialOption) (*grpc.ClientConn, error) {
 	dialOptions = append(dialOptions,
 		grpc.WithInsecure(),                   // unix domain connection.
 		grpc.WithBackoffMaxDelay(time.Second), // Retry every second after failure.
