@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kahu-backup-controller
+  name: kahu-service
   namespace: kahu
 spec:
   replicas: 1
@@ -15,7 +15,7 @@ spec:
     spec:
       serviceAccountName: kahu
       containers:
-        - image: docker.io/library/controller-manager:v0.1.0
+        - image: sodacdm/controller-manager:v0.2.0
           imagePullPolicy: IfNotPresent
           name: backup
           command: ["/usr/local/bin/controller-manager"]

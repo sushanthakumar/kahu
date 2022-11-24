@@ -30,7 +30,7 @@ import (
 	"google.golang.org/grpc"
 
 	nfsprovider "github.com/soda-cdm/kahu/providers/lib/go"
-	"github.com/soda-cdm/kahu/providers/nfsprovider/server/options"
+	"github.com/soda-cdm/kahu/providers/nfs/server/options"
 	"github.com/soda-cdm/kahu/utils"
 	logOptions "github.com/soda-cdm/kahu/utils/logoptions"
 )

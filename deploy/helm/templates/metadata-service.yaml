@@ -95,7 +95,7 @@ spec:
             {{ else }}
             memory: 100Mi
             {{ end }}
-        command: ["/usr/local/bin/nfsprovider"]
+        command: ["/usr/local/bin/nfs-provider"]
         args:
         - "-d"
         - "/data"
@@ -160,7 +160,7 @@ spec:
             {{ else }}
             memory: 100Mi
             {{ end }}
-        command: ["/usr/local/bin/metaservice"]
+        command: ["/usr/local/bin/meta-service"]
         args:
         - "-p"
         - "{{ (.Values.metadataService).grpcPort | default 8181 }}"
