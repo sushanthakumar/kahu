@@ -30,7 +30,9 @@ type KahuV1beta1Interface interface {
 	BackupLocationsGetter
 	ProvidersGetter
 	RestoresGetter
+	SnapshotsGetter
 	VolumeBackupContentsGetter
+	VolumeGroupsGetter
 	VolumeRestoreContentsGetter
 }
 
@@ -55,8 +57,16 @@ func (c *KahuV1beta1Client) Restores() RestoreInterface {
 	return newRestores(c)
 }
 
+func (c *KahuV1beta1Client) Snapshots() SnapshotInterface {
+	return newSnapshots(c)
+}
+
 func (c *KahuV1beta1Client) VolumeBackupContents() VolumeBackupContentInterface {
 	return newVolumeBackupContents(c)
+}
+
+func (c *KahuV1beta1Client) VolumeGroups() VolumeGroupInterface {
+	return newVolumeGroups(c)
 }
 
 func (c *KahuV1beta1Client) VolumeRestoreContents() VolumeRestoreContentInterface {

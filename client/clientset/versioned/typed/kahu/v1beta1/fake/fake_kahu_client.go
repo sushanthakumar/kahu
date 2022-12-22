@@ -44,8 +44,16 @@ func (c *FakeKahuV1beta1) Restores() v1beta1.RestoreInterface {
 	return &FakeRestores{c}
 }
 
+func (c *FakeKahuV1beta1) Snapshots() v1beta1.SnapshotInterface {
+	return &FakeSnapshots{c}
+}
+
 func (c *FakeKahuV1beta1) VolumeBackupContents() v1beta1.VolumeBackupContentInterface {
 	return &FakeVolumeBackupContents{c}
+}
+
+func (c *FakeKahuV1beta1) VolumeGroups() v1beta1.VolumeGroupInterface {
+	return &FakeVolumeGroups{c}
 }
 
 func (c *FakeKahuV1beta1) VolumeRestoreContents() v1beta1.VolumeRestoreContentInterface {

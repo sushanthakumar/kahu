@@ -26,6 +26,10 @@ type ProviderExpansion interface{}
 
 type RestoreExpansion interface{}
 
+type SnapshotExpansion interface{}
+
 type VolumeBackupContentExpansion interface{}
+
+type VolumeGroupExpansion interface{}
 
 type VolumeRestoreContentExpansion interface{}

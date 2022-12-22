@@ -15,7 +15,7 @@ spec:
     spec:
       serviceAccountName: kahu
       containers:
-        - image: sodacdm/kahu-controller-manager:v0.1.1
+        - image: controller-manager:v0.1.0
           imagePullPolicy: IfNotPresent
           name: backup
           command: ["/usr/local/bin/controller-manager"]
@@ -46,7 +46,7 @@ metadata:
   name: kahu-backup-clusterrole
 rules:
   - apiGroups: ["kahu.io"]
-    resources: ["backups", "backups/status", "restores", "restores/status", "backuplocations", "providers", "volumebackupcontents", "volumebackupcontents/status", "volumerestorecontents", "volumerestorecontents/status"]
+    resources: ["backups", "backups/status", "restores", "restores/status", "backuplocations", "providers", "volumebackupcontents", "volumebackupcontents/status", "volumerestorecontents", "volumerestorecontents/status", "snapshots", "snapshots/status"]
     verbs: ["get", "list", "watch", "patch", "update", "delete"]
   - apiGroups: ["*"]
     resources: ["*"]
@@ -55,6 +55,9 @@ rules:
     resourceNames: ["backup"]
     resources: ["leases"]
     verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch", "patch", "update", "delete"]    
   - apiGroups: [ "rbac.authorization.k8s.io" ]
     resources: [ "clusterroles", "roles" ]
     verbs: [ "bind", "escalate" ]

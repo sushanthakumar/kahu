@@ -614,17 +614,17 @@ func (ctx *restoreContext) populateRestoreResources(restore *kahuapi.Restore) (*
 
 	ctx.resolveObjects = restoreIndexer
 
-	err = ctx.checkForRestoreResConflict(restore)
-	if err != nil {
-		restore.Status.State = kahuapi.RestoreStateFailed
-		restore.Status.FailureReason = err.Error()
-		restore, err = ctx.updateRestoreStatus(restore)
-		if err != nil {
-			return restore, err
-		}
-		return restore, errors.New("Resource conflict occurred during restore validation, " +
-			"suggest to restore to new namespace or perform residual resource cleanup in source namespace")
-	}
+	//err = ctx.checkForRestoreResConflict(restore)
+	//if err != nil {
+	//	restore.Status.State = kahuapi.RestoreStateFailed
+	//	restore.Status.FailureReason = err.Error()
+	//	restore, err = ctx.updateRestoreStatus(restore)
+	//	if err != nil {
+	//		return restore, err
+	//	}
+	//	return restore, errors.New("Resource conflict occurred during restore validation, " +
+	//		"suggest to restore to new namespace or perform residual resource cleanup in source namespace")
+	//}
 
 	return restore, nil
 }
