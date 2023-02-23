@@ -1,0 +1,157 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kahu-volume-service-sa
+  namespace: {{ (.Values.global).namespace | default "kahu" }}
+  labels:
+    app: kahu-volume-service
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: volume-backup-service-role
+  labels:
+    app: kahu-volume-service
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "events" ]
+    verbs: [ "create" ]
+  - apiGroups: [ "" ]
+    resources: [ "configmaps" ]
+    verbs: [ "create", "get", "update", "delete" ]
+  - apiGroups: [ "" ]
+    resources: [ "persistentvolumes" ]
+    verbs: [ "get" ]    
+  - apiGroups: [ "coordination.k8s.io" ]
+    resources: [ "leases" ]
+    verbs: [ "create", "get", "update", "delete" ]
+  - apiGroups: [ "kahu.io" ]
+    resources: [ "backuplocations", "providers", "backups", "restores" ]
+    verbs: [ "create", "watch", "get", "list" ]
+  - apiGroups: [ "kahu.io" ]
+    resources: [ "volumerestorecontents", "volumerestorecontents/status", "volumebackupcontents",
+                 "volumebackupcontents/status" ]
+    verbs: [ "get", "list", "watch", "update", "patch" ]
+  - apiGroups: [ "kahu.io" ]
+    resources: [ "providers", "providers/status" ]
+    verbs: ["create", "delete", "watch", "update", "patch", "get", "list"]
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: volume-backup-service-binding
+  labels:
+    app: kahu-volume-service
+subjects:
+  - kind: ServiceAccount
+    name: kahu-volume-service-sa
+    namespace: {{ (.Values.global).namespace | default "kahu" }}
+roleRef:
+  kind: ClusterRole
+  name: volume-backup-service-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kahu-volume-service
+  namespace: {{ (.Values.global).namespace | default "kahu" }}
+  labels:
+    app: kahu-volume-service
+spec:
+  replicas: {{ (.Values.global).replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: kahu-volume-service
+  template:
+    metadata:
+      labels:
+        app: kahu-volume-service
+    spec:
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: {{ ((.Values.global).tolerations).notReadySeconds | default 15 }}
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: {{ ((.Values.global).tolerations).unreachableSeconds | default 15 }}
+      serviceAccount: kahu-volume-service-sa
+      containers:
+        - name: volume-backup-service
+          image: {{ required "Must provide the Values.global.imageRepo" .Values.global.imageRepo}}{{ required "Must provide the .Values.images.volumeBackupService" .Values.images.volumeBackupService }}
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+          {{ if ((.Values.global).image).pullPolicy }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          {{ else }}
+          imagePullPolicy: IfNotPresent
+          {{ end }}
+          resources:
+            requests:
+              {{ if ((.Values.volumeService).volumeBackupService).cpuResources }}
+              cpu: {{ .Values.volumeService.volumeBackupService.cpuResources }}
+              {{ else }}
+              cpu: 250m
+              {{ end }}
+              {{ if ((.Values.volumeService).volumeBackupService).memoryResources }}
+              memory: {{ .Values.volumeService.volumeBackupService.memoryResources }}
+              {{ else }}
+              {{ end }}
+            limits:
+              {{ if ((.Values.volumeService).volumeBackupService).cpuResources }}
+              cpu: {{ .Values.volumeService.volumeBackupService.cpuResources }}
+              {{ else }}
+              cpu: 250m
+              {{ end }}
+              {{ if ((.Values.volumeService).volumeBackupService).memoryResources }}
+              memory: {{ .Values.volumeService.volumeBackupService.memoryResources }}
+              {{ else }}
+              {{ end }}
+          args:
+            - --driverEndpoint
+            - /tmp/dr-csi.sock
+            {{ if gt ( (.Values.global).replicaCount | int ) 1 }}
+            - --enableLeaderElection=true
+            {{ else }}
+            - --enableLeaderElection=false
+            {{ end }}
+            {{ if ((.Values.global).leaderElection).leaseDuration }}
+            - --leaderLeaseDuration={{ .Values.global.leaderElection.leaseDuration }}
+            {{ else }}
+            - --leaderLeaseDuration=8s
+            {{ end }}
+            {{ if ((.Values.global).leaderElection).renewDeadline }}
+            - --leaderRenewDeadline={{ .Values.global.leaderElection.renewDeadline }}
+            {{ else }}
+            - --leaderRenewDeadline=6s
+            {{ end }}
+            {{ if ((.Values.global).leaderElection).retryPeriod }}
+            - --leaderRetryPeriod={{ .Values.global.leaderElection.retryPeriod }}
+            {{ else }}
+            - --leaderRetryPeriod=2s
+            {{ end }}
+          command:
+            - /usr/local/bin/volume-service
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /tmp
+              name: socket-dir
+            - mountPath: /etc/localtime
+              name: host-time
+      volumes:
+        - emptyDir: null
+          name: socket-dir
+        - hostPath:
+            path: /etc/localtime
+            type: File
+          name: host-time

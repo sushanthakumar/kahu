@@ -1,0 +1,6 @@
+apiVersion: kahu.io/v1beta1
+kind: BackupLocation
+metadata:
+  name: metadata-backup-location
+spec:
+  providerName: nfs-provider

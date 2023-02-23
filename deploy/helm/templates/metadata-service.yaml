@@ -1,0 +1,204 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kahu-metadata-service-sa
+  namespace: {{ (.Values.global).namespace | default "kahu" }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: kahu-metadata-service
+  name: metadata-service-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: metadata-service-role
+subjects:
+  - kind: ServiceAccount
+    name: kahu-metadata-service-sa
+    namespace: {{ (.Values.global).namespace | default "kahu" }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: metadata-service-role
+  labels:
+    app: kahu-metadata-service
+rules:
+  - apiGroups: ["kahu.io"]
+    resources: ["providers", "providers/status"]
+    verbs: ["create", "delete", "watch", "update", "patch", "get", "list"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "delete", "update", "patch", "get", "list"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "delete", "update", "get"]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kahu-metadata-service
+  namespace: {{ (.Values.global).namespace | default "kahu" }}
+spec:
+  replicas: {{ (.Values.global).replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: kahu-metadata-service
+  template:
+    metadata:
+      labels:
+        app: kahu-metadata-service
+    spec:
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: {{ ((.Values.global).tolerations).notReadySeconds | default 15 }}
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: {{ ((.Values.global).tolerations).unreachableSeconds | default 15 }}
+      serviceAccountName: kahu-metadata-service-sa
+      containers:
+      - name: nfs-provider
+        image: {{ required "Must provide the Values.global.imageRepo" .Values.global.imageRepo}}{{ required "Must provide the .Values.images.nfsProvider" .Values.images.nfsProvider }}
+        {{ if ((.Values.global).image).pullPolicy }}
+        imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+        {{ else }}
+        imagePullPolicy: IfNotPresent
+        {{ end }}
+        resources:
+          requests:
+            {{ if ((.Values.metadataService).nfsProvider).cpuResources }}
+            cpu: {{ .Values.metadataService.nfsProvider.cpuResources }}
+            {{ else }}
+            cpu: 250m
+            {{ end }}
+            {{ if ((.Values.metadataService).nfsProvider).memoryResources }}
+            memory: {{ .Values.metadataService.nfsProvider.memoryResources }}
+            {{ else }}
+            memory: 100Mi
+            {{ end }}
+          limits:
+            {{ if ((.Values.metadataService).nfsProvider).cpuResources }}
+            cpu: {{ .Values.metadataService.nfsProvider.cpuResources }}
+            {{ else }}
+            cpu: 250m
+            {{ end }}
+            {{ if ((.Values.metadataService).nfsProvider).memoryResources }}
+            memory: {{ .Values.metadataService.nfsProvider.memoryResources }}
+            {{ else }}
+            memory: 100Mi
+            {{ end }}
+        command: ["/usr/local/bin/nfsprovider"]
+        args:
+        - "-d"
+        - "/data"
+        livenessProbe:
+          failureThreshold: 5
+          httpGet:
+            path: /healthz
+            port: healthz
+          initialDelaySeconds: 10
+          periodSeconds: 120
+          timeoutSeconds: 3
+        ports:
+          - containerPort: {{ int (.Values.metadataService).healthzPort | default 9808 }}
+            name: healthz
+            protocol: TCP
+        volumeMounts:
+          # name must match the volume name below
+        - name: nfs
+          mountPath: "/data"
+        - name: socket
+          mountPath: "/tmp"
+        - mountPath: /etc/localtime
+          name: host-time
+      - name: metadata-service
+        image: {{ required "Must provide the Values.global.imageRepo" .Values.global.imageRepo}}{{ required "Must provide the .Values.images.metadataService" .Values.images.metadataService }}
+        env:
+          - name: NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.labels['app']
+          - name: NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+        {{ if ((.Values.global).image).pullPolicy }}
+        imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+        {{ else }}
+        imagePullPolicy: IfNotPresent
+        {{ end }}
+        resources:
+          requests:
+            {{ if ((.Values.metadataService).metadataService).cpuResources }}
+            cpu: {{ .Values.metadataService.metadataService.cpuResources }}
+            {{ else }}
+            cpu: 250m
+            {{ end }}
+            {{ if ((.Values.metadataService).metadataService).memoryResources }}
+            memory: {{ .Values.metadataService.metadataService.memoryResources }}
+            {{ else }}
+            memory: 100Mi
+            {{ end }}
+          limits:
+            {{ if ((.Values.metadataService).metadataService).cpuResources }}
+            cpu: {{ .Values.metadataService.metadataService.cpuResources }}
+            {{ else }}
+            cpu: 250m
+            {{ end }}
+            {{ if ((.Values.metadataService).metadataService).memoryResources }}
+            memory: {{ .Values.metadataService.metadataService.memoryResources }}
+            {{ else }}
+            memory: 100Mi
+            {{ end }}
+        command: ["/usr/local/bin/metaservice"]
+        args:
+        - "-p"
+        - "{{ (.Values.metadataService).grpcPort | default 8181 }}"
+        - "-a"
+        - "0.0.0.0"
+        ports:
+        - name: grpc
+          containerPort: {{ int (.Values.metadataService).grpcPort | default 8181 }}
+        volumeMounts:
+          # name must match the volume name below
+          - name: socket
+            mountPath: "/tmp"
+          - mountPath: /etc/localtime
+            name: host-time
+      volumes:
+      - name: nfs
+        persistentVolumeClaim:
+          claimName: nfs
+      - name: socket
+        emptyDir: {}
+      - hostPath:
+          path: /etc/localtime
+          type: File
+        name: host-time
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kahu-metadata-service
+  namespace: {{ (.Values.global).namespace | default "kahu" }}
+  labels:
+    app: kahu-metadata-service
+spec:
+  ports:
+    - name: grpc
+      port: {{ int (.Values.metadataService).grpcPort | default 8181 }}
+    - name: healthz
+      port: {{ int (.Values.metadataService).healthzPort | default 9808 }}
+  selector:
+    app: kahu-metadata-service

@@ -1,0 +1,145 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kahu-backup-service-sa
+  namespace: {{ (.Values.global).namespace | default "kahu" }}
+  labels:
+    app: kahu-backup-service
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backup-role
+  labels:
+    app: kahu-backup-service
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "configmaps" ]
+    verbs: [ "create", "get", "update", "delete" ]
+  - apiGroups: [ "coordination.k8s.io" ]
+    resources: [ "leases" ]
+    verbs: [ "create", "get", "update", "delete" ]
+  - apiGroups: [ "kahu.io" ]
+    resources: [ "backups", "backups/status", "restores", "restores/status", "backuplocations",
+                 "providers", "volumebackupcontents", "volumebackupcontents/status",
+                 "volumerestorecontents", "volumerestorecontents/status" ]
+    verbs: [ "get", "list", "watch", "patch", "update", "delete" ]
+  - apiGroups: [ "*" ]
+    resources: [ "*" ]
+    verbs: [ "create", "get", "list", "delete" ]
+  - apiGroups: [ "rbac.authorization.k8s.io" ]
+    resources: [ "clusterroles", "roles" ]
+    verbs: [ "bind", "escalate" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: kahu-backup-service
+  name: backup-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: backup-role
+subjects:
+  - kind: ServiceAccount
+    name: kahu-backup-service-sa
+    namespace: {{ (.Values.global).namespace | default "kahu" }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kahu-backup-service
+  namespace: {{ (.Values.global).namespace | default "kahu" }}
+  labels:
+    app: kahu-backup-service
+spec:
+  replicas: {{ (.Values.global).replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: kahu-backup-service
+  template:
+    metadata:
+      labels:
+        app: kahu-backup-service
+    spec:
+      tolerations:
+        - key: node.kubernetes.io/not-ready
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: {{ ((.Values.global).tolerations).notReadySeconds | default 15 }}
+        - key: node.kubernetes.io/unreachable
+          operator: Exists
+          effect: NoExecute
+          tolerationSeconds: {{ ((.Values.global).tolerations).unreachableSeconds | default 15 }}
+      serviceAccount: kahu-backup-service-sa
+      containers:
+        - name: backup
+          image: {{ required "Must provide the Values.global.imageRepo" .Values.global.imageRepo}}{{ required "Must provide the .Values.images.backup" .Values.images.backup }}
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+          {{ if ((.Values.global).image).pullPolicy }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          {{ else }}
+          imagePullPolicy: IfNotPresent
+          {{ end }}
+          resources:
+            requests:
+              {{ if ((.Values.backupService).backup).cpuResources }}
+              cpu: {{ .Values.backupService.backup.cpuResources }}
+              {{ else }}
+              cpu: 250m
+              {{ end }}
+              {{ if ((.Values.backupService).backup).memoryResources }}
+              memory: {{ .Values.backupService.backup.memoryResources }}
+              {{ else }}
+              {{ end }}
+            limits:
+              {{ if ((.Values.backupService).backup).cpuResources }}
+              cpu: {{ .Values.backupService.backup.cpuResources }}
+              {{ else }}
+              cpu: 250m
+              {{ end }}
+              {{ if ((.Values.backupService).backup).memoryResources }}
+              memory: {{ .Values.backupService.backup.memoryResources }}
+              {{ else }}
+              {{ end }}
+          args:
+            {{ if gt ( (.Values.global).replicaCount | int ) 1 }}
+            - --enableLeaderElection=true
+            {{ else }}
+            - --enableLeaderElection=false
+            {{ end }}
+            {{ if ((.Values.global).leaderElection).leaseDuration }}
+            - --leaderLeaseDuration={{ .Values.global.leaderElection.leaseDuration }}
+            {{ else }}
+            - --leaderLeaseDuration=8s
+            {{ end }}
+            {{ if ((.Values.global).leaderElection).renewDeadline }}
+            - --leaderRenewDeadline={{ .Values.global.leaderElection.renewDeadline }}
+            {{ else }}
+            - --leaderRenewDeadline=6s
+            {{ end }}
+            {{ if ((.Values.global).leaderElection).retryPeriod }}
+            - --leaderRetryPeriod={{ .Values.global.leaderElection.retryPeriod }}
+            {{ else }}
+            - --leaderRetryPeriod=2s
+            {{ end }}
+            - --supportedResources=Pod,Deployment,StatefulSet,DaemonSet,ReplicaSet,Service
+          command: [ "/usr/local/bin/controllermanager" ]
+          volumeMounts:
+            - mountPath: /var/log
+              name: log
+            - mountPath: /etc/localtime
+              name: host-time
+      volumes:
+        - hostPath:
+            path: /etc/localtime
+            type: File
+          name: host-time

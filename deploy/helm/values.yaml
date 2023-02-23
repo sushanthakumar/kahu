@@ -1,0 +1,40 @@
+# Default values for kahu.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+##################################Follows are REQUIRED##################################
+# all global values across charts go here
+global:
+  # the number of replicas of the pod.
+  # if the replicaCount greater than 1, then the function of leader election will be enabled.
+  replicaCount: 1
+  imageRepo: <IMAGE_REPO_PATH>
+
+metadataRepository:
+  nfs:
+    # Change to the actual NFS Server IP address, e.g. 192.168.0.1
+    server: <NFS_SERVER_IP>
+    # Change to the export path, e.g. /share-path/
+    path: <NFS_SERVER_PATH>
+    # nfs version, 3, 3.0, 4.0 and 4.1 are supported, and 4.1 suggested
+    version: 4.1
+    # Change to the volume capacity, e.g. 100Gi
+    capacity: <VOLUME_CAPACITY>
+  pvcs:
+    - name: pvc1
+      storageclass: sc1
+      capacity:
+      # volumemode, accessmode, namespace will be set internally
+
+
+
+
+
+images:
+  # backup service images
+  backup : kahu-backup:1.0.0
+  # metadata service images, include metadata-service and nfs-provider
+  nfsProvider : kahu-nfs-provider:1.0.0
+  metadataService : kahu-metadata-service:1.0.0
+  # volume service image
+  volumeBackupService : kahu-volume-service:1.0.0
