@@ -30,6 +30,7 @@ readonly KAHU_STATIC_BINARIES=(
   meta-service
   volume-service
   openebs-zfs
+  linstor
   nfs-provider
 )
 
@@ -41,6 +42,7 @@ golang::targets() {
     cmd/volume-service
     providers/nfs/nfs-provider
     cmd/openebs-zfs
+    cmd/linstor
   )
   echo "${targets[@]}"
 }

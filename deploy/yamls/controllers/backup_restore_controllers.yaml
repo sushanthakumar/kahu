@@ -15,7 +15,8 @@ spec:
     spec:
       serviceAccountName: kahu
       containers:
-        - image: sodacdm/kahu-controller-manager:v1.0.0
+              #- image: sodacdm/kahu-controller-manager:v1.0.0
+        - image: sodacdm/kahu-controller-manager:csi-demo
           imagePullPolicy: IfNotPresent
           name: backup
           command: ["/usr/local/bin/controller-manager"]

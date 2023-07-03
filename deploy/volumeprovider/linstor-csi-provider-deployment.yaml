@@ -19,28 +19,28 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kahu-openebs-zfs-provider
+  name: kahu-linstor-csi-provider
   namespace: kahu
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: openebs-zfs-provider
+      app: linstor-csi-provider
   template:
     metadata:
       labels:
-        app: openebs-zfs-provider
+        app: linstor-csi-provider
     spec:
-      serviceAccountName: kahu-openebs-zfs-provider
+      serviceAccountName: kahu-linstor-csi-provider
       containers:
-      - image: sodacdm/kahu-openebs-zfs-provider:demo
+      - image: sodacdm/kahu-linstor-csi-provider:linstor-demo
         imagePullPolicy: IfNotPresent
-        name: openebs-zfs-driver
-        command: ["/usr/local/bin/openebs-zfs"]
+        name: linstor-csi-driver
+        command: ["/usr/local/bin/linstor"]
         volumeMounts:
         - name: socket
           mountPath: "/tmp"
-      - image: sodacdm/kahu-volume-service:demo
+      - image: sodacdm/kahu-volume-service:linstor-demo
         imagePullPolicy: IfNotPresent
         name: volume-service
         command: ["/usr/local/bin/volume-service"]
@@ -66,7 +66,7 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: kahu-openebs-zfs-provider
+  name: kahu-linstor-csi-provider
   namespace: kahu
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -74,14 +74,14 @@ kind: ClusterRoleBinding
 metadata:
   labels:
     provisioner: kahu
-  name: kahu-openebs-zfs-provider-clusterrole-binding
+  name: kahu-linstor-csi-provider-clusterrole-binding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: kahu-openebs-zfs-provider-clusterrole
+  name: kahu-linstor-csi-provider-clusterrole
 subjects:
   - kind: ServiceAccount
-    name: kahu-openebs-zfs-provider
+    name: kahu-linstor-csi-provider
     namespace: kahu
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -89,7 +89,7 @@ kind: ClusterRole
 metadata:
   labels:
     provisioner: kahu
-  name: kahu-openebs-zfs-provider-clusterrole
+  name: kahu-linstor-csi-provider-clusterrole
 rules:
   - apiGroups: ["kahu.io"]
     resources: ["providers", "providers/status"]
