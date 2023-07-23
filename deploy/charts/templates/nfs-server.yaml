@@ -1,0 +1,40 @@
+{{ if (.Values.nfsServer).needExternalServerDeploy }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-server
+  namespace: {{ (.Values.global).namespace | default "kahu" }}
+spec:
+  replicas: {{ (.Values.global).replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      role: nfs-server
+  template:
+    metadata:
+      labels:
+        role: nfs-server
+    spec:
+      containers:
+      - name: nfs-server
+        image: {{ .Values.nfsServer.image }}
+        {{ if (.Values.image).pullPolicy }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        {{ else }}
+        imagePullPolicy: IfNotPresent
+        {{ end }}
+        ports:
+          - name: nfs
+            containerPort: {{ int (.Values.nfsServer).ports.nfs }}
+          - name: mountd
+            containerPort: {{ int (.Values.nfsServer).ports.mountd }}
+          - name: rpcbind
+            containerPort: {{ int (.Values.nfsServer).ports.rpcbind }}
+        securityContext:
+          privileged: true
+        volumeMounts:
+          - mountPath: /exports
+            name: mypvc
+      volumes:
+        - name: mypvc
+          emptyDir: {}
+{{ end }}

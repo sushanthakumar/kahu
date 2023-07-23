@@ -1,0 +1,57 @@
+# Default values for kahu.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# all global values across charts go here
+global:
+  # the number of replicas of the pod.
+  replicaCount: 1
+  # the namespace for deployment of kahu components
+  namespace: kahu
+image:
+  pullPolicy: Always
+  # backup service image
+  backupImage : sodacdm/kahu-controller-manager:with-restic-new2
+  # metadata service image, include metadata-service and nfs-provider
+  metadataServiceImage : sodacdm/kahu-meta-service:with-restic-new2
+  nfsProviderImage : sodacdm/kahu-nfs-provider:with-restic-new2
+  # volume service image
+  volumeBackupServiceImage : sodacdm/kahu-volume-service:with-restic-new2
+
+metadataProviders:
+  nfs:
+    providerName: nfs-provider.meta.backup.kahu.io
+    providerImage : sodacdm/kahu-nfs-provider:with-restic-new2
+    # Mount path inside nfs provider
+    mountPath: /data
+    # nfs version, 3, 3.0, 4.0 and 4.1 are supported, and 4.1 suggested
+    version: 4.2
+    # Change to the volume capacity, e.g. 100Gi
+    capacity: 2Gi
+    pvcName: nfs
+nfsServer:
+  # Mention whether external nfs server to be deployed. If already have , set to false
+  # Other parameters will not be used, if this is set to false
+  needExternalServerDeploy: true
+  # Change to the actual NFS Server IP address, e.g. 192.168.0.1
+  server: 10.101.24.106
+  exportPath: /
+  image : k8s.gcr.io/volume-nfs:0.8
+  ports:
+    nfs: 2049
+    mountd: 20048
+    rpcbind: 111
+
+volumeBackupProviders:
+  openEbsZfs:
+    enableProvider: true
+    providerName: "zfs.backup.openebs.io"
+    providerType: "VolumeBackup"
+    supportedProvisioner: zfs.csi.openebs.io
+    providerImage : sodacdm/kahu-openebs-zfs:with-restic-new2
+  linstorCsi:
+    enableProvider: false
+    providerName: "snapshotter.backup.csi.io"
+    providerType: "VolumeBackup"
+    supportedProvisioner: linstor.csi.linbit.com
+    providerImage : sodacdm/kahu-csi-snapshotter:with-restic-new
