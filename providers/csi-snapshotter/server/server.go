@@ -26,7 +26,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"strings"
+	//"strings"
 
 	"github.com/soda-cdm/kahu/client"
 	"github.com/soda-cdm/kahu/providers/csi-snapshotter/server/options"
@@ -114,8 +114,8 @@ func (server *volBackupServer) Probe(ctx context.Context, probeRequest *pb.Probe
 // Create backup of the provided volumes
 func (server *volBackupServer) StartBackup(ctx context.Context, req *pb.StartBackupRequest) (*pb.StartBackupResponse, error) {
 	backupIdentifiers := make([]*pb.BackupIdentifier, 0)
-	log.Info("StartBackup called ....")
 	for _, backupInfo := range req.GetBackupInfo() {
+		log.Infof("StartBackup BackupHandle....%+v", backupInfo.Snapshot.SnapshotHandle)
 		backupIdentifiers = append(backupIdentifiers, &pb.BackupIdentifier{
 			PvName: backupInfo.Pv.Name,
 			BackupIdentity: &pb.BackupIdentity{
@@ -169,12 +169,12 @@ func (server *volBackupServer) CreateVolumeFromBackup(ctx context.Context,
 	restoreIDs := make([]*pb.RestoreVolumeIdentifier, 0)
 	for _, restoreInfo := range restoreReq.RestoreInfo {
 		log.Infof("CreateVolumeFromBackup ....%+v", restoreInfo)
-		backupHandle := restoreInfo.GetBackupIdentity().BackupHandle
-		log.Infof("CreateVolumeFromBackup backupHandle....%+v", backupHandle)
-		//bacjupHandleSplit := strings.Split(backupHandle, "@")
-		//snapshotHandle := bacjupHandleSplit[1]
-		snapshotContentName := strings.ReplaceAll(backupHandle, "snapshot", "snapcontent")
-		log.Infof("CreateVolumeFromBackup snapshotContentName....%+v", snapshotContentName)
+		// backupHandle := restoreInfo.GetBackupIdentity().BackupHandle
+		// bacjupHandleSplit := strings.Split(backupHandle, "@")
+		// snapshotHandle := bacjupHandleSplit[1]
+		// snapshotContentName := strings.ReplaceAll(snapshotHandle, "snapshot", "snapcontent")
+		snapshotContentName := restoreInfo.GetBackupIdentity().BackupHandle
+		log.Infof("Updated CreateVolumeFromBackup snapshotContentName....%+v", snapshotContentName)
 		snapshotContent, err := server.snapshotCli.SnapshotV1().
 			VolumeSnapshotContents().
 			Get(context.TODO(), snapshotContentName, metav1.GetOptions{})

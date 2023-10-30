@@ -413,40 +413,40 @@ func (ctrl *controller) GetVolumesSpec(podspec v1.PodSpec, namespace string,
 			}
 		}
 
-		// collect pvc used in deployment
-		if v.PersistentVolumeClaim != nil {
-			pvc, err := ctrl.GetPVCByName(namespace, v.PersistentVolumeClaim.ClaimName)
-			if err != nil {
-				ctrl.logger.Errorf("unable to get pvc:%s, error:%s", v.PersistentVolumeClaim.ClaimName, err)
-				return err
-			}
-			if pvc == nil {
-				continue
-			}
+		// // collect pvc used in deployment
+		// if v.PersistentVolumeClaim != nil {
+		// 	pvc, err := ctrl.GetPVCByName(namespace, v.PersistentVolumeClaim.ClaimName)
+		// 	if err != nil {
+		// 		ctrl.logger.Errorf("unable to get pvc:%s, error:%s", v.PersistentVolumeClaim.ClaimName, err)
+		// 		return err
+		// 	}
+		// 	if pvc == nil {
+		// 		continue
+		// 	}
 
-			err = ctrl.backupSend(pvc, v.PersistentVolumeClaim.ClaimName, backupClient)
-			if err != nil {
-				ctrl.logger.Errorf("unable to backup pvc:%s, error:%s", v.PersistentVolumeClaim.ClaimName, err)
-				return err
-			}
+		// 	err = ctrl.backupSend(pvc, v.PersistentVolumeClaim.ClaimName, backupClient)
+		// 	if err != nil {
+		// 		ctrl.logger.Errorf("unable to backup pvc:%s, error:%s", v.PersistentVolumeClaim.ClaimName, err)
+		// 		return err
+		// 	}
 
-			// now get the storageclass used in PVC
-			var storageClassName string
-			if pvc.Spec.StorageClassName != nil && *pvc.Spec.StorageClassName != "" {
-				storageClassName = *pvc.Spec.StorageClassName
-				sc, err := ctrl.GetSC(storageClassName)
-				if err != nil {
-					ctrl.logger.Errorf("unable to get storageclass:%s", storageClassName, err)
-					return err
-				}
+		// 	// now get the storageclass used in PVC
+		// 	var storageClassName string
+		// 	if pvc.Spec.StorageClassName != nil && *pvc.Spec.StorageClassName != "" {
+		// 		storageClassName = *pvc.Spec.StorageClassName
+		// 		sc, err := ctrl.GetSC(storageClassName)
+		// 		if err != nil {
+		// 			ctrl.logger.Errorf("unable to get storageclass:%s", storageClassName, err)
+		// 			return err
+		// 		}
 
-				err = ctrl.backupSend(sc, storageClassName, backupClient)
-				if err != nil {
-					ctrl.logger.Errorf("unable to backup storageclass:%s, error:%s", storageClassName, err)
-					return err
-				}
-			}
-		}
+		// 		err = ctrl.backupSend(sc, storageClassName, backupClient)
+		// 		if err != nil {
+		// 			ctrl.logger.Errorf("unable to backup storageclass:%s, error:%s", storageClassName, err)
+		// 			return err
+		// 		}
+		// 	}
+		// }
 
 		// collect secret used in deployment
 		if v.Secret != nil {

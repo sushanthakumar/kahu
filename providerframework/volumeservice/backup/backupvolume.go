@@ -475,8 +475,11 @@ func (ctrl *controller) getSnapshotBySnapshotState(
 		return nil, err
 	}
 
+	ctrl.logger.Infof("*******csiVolSnapshotContent name id %s ", csiVolSnapshotContent.Name)
+
 	return &providerSvc.Snapshot{
-		SnapshotHandle: *csiVolSnapshotContent.Status.SnapshotHandle,
+		//SnapshotHandle: *csiVolSnapshotContent.Status.SnapshotHandle,
+		SnapshotHandle: csiVolSnapshotContent.Name,
 	}, nil
 }
 

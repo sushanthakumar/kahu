@@ -1,8 +1,8 @@
 apiVersion: kahu.io/v1beta1
 kind: Backup
 metadata:
-  name: backup-demo-ns
+  name: backup-wordpress
 spec:
   excludeResources: []
-  includeNamespaces: [default]
+  includeNamespaces: ["wordpress"]
   metadataLocation: nfs

@@ -1,9 +1,8 @@
 apiVersion: kahu.io/v1beta1
 kind: Restore 
 metadata:
-   name: restore-demo-1
+   name: restore-wordpress
 spec:
-   backupName: backup-demo
-   namespaceMapping:
-     default: restore-ns
+   backupName: backup-wordpress
+   preserveNodePort: true
 
